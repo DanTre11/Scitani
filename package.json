@@ -1,0 +1,11 @@
+{
+  "name": "scitani-dopravy",
+  "version": "1.0.1",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

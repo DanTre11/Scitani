@@ -1,0 +1,17 @@
+SČÍTÁNÍ DOPRAVY v1.0.1 – NASAZENÍ NA RENDER
+
+1. Nahrajte obsah této složky do nového GitHub repozitáře (soubory musí být v kořeni repozitáře).
+2. Na Renderu zvolte New > Blueprint.
+3. Připojte GitHub repozitář. Render načte render.yaml.
+4. Potvrďte vytvoření služby scitani-dopravy.
+5. Počkejte na stav Live a otevřete přidělenou HTTPS adresu *.onrender.com.
+6. Na prvním telefonu vytvořte sčítání. Na druhém telefonu otevřete STEJNOU HTTPS adresu a připojte se pomocí šestimístného kódu.
+7. Po ověření v prohlížeči lze PWA přidat na plochu telefonu.
+
+TESTOVACÍ REŽIM NA FREE RENDERU
+- Free web service se po nečinnosti uspává a její lokální filesystem není trvalý.
+- data.json proto slouží jen pro první dvou-telefonní test. Restart/spin-down/deploy může serverová data smazat.
+- Pro skutečný provoz je nutné přejít na trvalé úložiště (např. Render Postgres nebo placený persistent disk).
+
+HEALTH CHECK
+/health vrací JSON s ok=true a verzí aplikace.

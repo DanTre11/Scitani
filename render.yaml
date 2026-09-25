@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: scitani-dopravy
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
