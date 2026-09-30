@@ -2578,7 +2578,7 @@
         }
       }
     }
-    $("#presenceConfirm").onclick = async () => {
+    $("presenceConfirm").onclick = async () => {
   const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
   if (!u2) return;
 
@@ -2594,7 +2594,7 @@
   if (pr.ok) {
     lastActivityAt = Date.now();
     presencePromptFor = 0;
-    $("#presenceBar").classList.add("hidden");
+    $("presenceBar").classList.add("hidden");
 
     const a = JSON.parse(await storage.getItem("trafficActive") || "null");
     if (a) {
@@ -2613,7 +2613,7 @@ const idleMs = Date.now() - lastActivityAt;
 
 if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
          presencePromptFor = lastActivityAt;
-  $("#presenceBar")?.classList.remove("hidden");
+  $("presenceBar")?.classList.remove("hidden");
 }
 
 
