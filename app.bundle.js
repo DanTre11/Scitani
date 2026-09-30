@@ -2378,8 +2378,7 @@
       $("sheet").classList.remove("open");
       isCreator = isCreator || (await storage.getItem("trafficRole:" + current.code)) === "admin" && !!(await adminToken(current.code));
       $("presenceBar")?.classList.add("hidden");
-      renderUserFinal();
-      if (reason === "inactivity") $("userFinal").insertAdjacentHTML("afterbegin", '<p class="muted">Vaše sčítání bylo po 20 minutách bez aktivity automaticky ukončeno.</p>');
+      renderUserFinal(reason);
       $("creatorFinishActions").classList.toggle("hidden", !isCreator);
       show("finishUser");
       await flushQueue();
@@ -2570,10 +2569,18 @@
       let u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "{}");
       return `<div class="summaryBox"><div class="adminRow"><b>M\xEDsto</b><div>${esc(current.place)}</div></div><div class="adminRow"><b>Stanovi\u0161t\u011B / skupina</b><div>${esc(current.station)} \xB7 ${esc(current.group)}</div></div>${personal ? `<div class="adminRow"><b>S\u010D\xEDta\u010D</b><div>${esc(u2.name || "")}</div></div>` : ""}<h3>${personal ? "V\xE1\u0161 v\xFDsledek" : "Celkov\xFD v\xFDsledek"}</h3>${rows.map(([n, v]) => `<div class="stat"><span>${esc(n)}</span><b>${v}</b></div>`).join("")}<div class="summaryTotal">Celkem: ${total} vozidel</div><h3>Sm\u011Bry a pohyby</h3>${Object.keys(dirs).length ? Object.entries(dirs).map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><b>${v}</b></div>`).join("") : '<span class="muted">Bez zaznamenan\xFDch vozidel.</span>'}</div>`;
     }
-    function renderUserFinal() {
+    function renderUserFinal(reason = "manual") {
+      const messages = {
+        manual: "Ukončili jste své sčítání.",
+        inactivity: "Sčítání ukončeno z důvodu nepřítomnosti (20 minut bez aktivity).",
+        "session-ended": "Vaše sčítání ukončil správce ukončením celého sčítání."
+      };
+      $("finishUser").querySelector(".thanks > p").textContent = messages[reason] || messages.manual;
       $("userFinal").innerHTML = summaryHtml(records, true);
+      $("presenceBar")?.classList.add("hidden");
     }
     async function renderAdminFinal() {
+      $("finishAdmin").querySelector(".thanks > p").textContent = "Jako správce jste ukončili celé sčítání.";
       current = (await db())[current.code] || current;
       $("adminFinal").innerHTML = summaryHtml(current.records, false);
     }
@@ -2664,7 +2671,7 @@
           await storage.removeItem("trafficActive");
           clearInterval(timer);
           $("sheet").classList.remove("open");
-          renderUserFinal();
+          renderUserFinal("session-ended");
           show("finishUser");
         } else if (r.ok && r.data.autoFinished) {
           await finishMyCounting("inactivity");
