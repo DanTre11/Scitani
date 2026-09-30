@@ -2584,7 +2584,11 @@
 
   const pr = await apiResult(
     "/sessions/" + u2.code + "/users/" + u2.id + "/presence",
-    { method: "POST" }
+    {
+  method: "POST",
+  headers: { "X-Participant-Token": participantToken(u2.code, u2.id) },
+  body: "{}"
+}
   );
 
   if (pr.ok) {
