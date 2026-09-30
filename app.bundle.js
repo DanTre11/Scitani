@@ -2669,7 +2669,7 @@
   // mobile-app-production-v1.3.0/src/main.js
   var fallback = "https://scitanidopravnihoproudu.org";
   async function boot() {
-    const apiBase = fallback, p = await platform(apiBase);
+    const apiBase = /^https?:$/.test(location.protocol) ? location.origin : fallback, p = await platform(apiBase);
     p.storage = scopedStore(p.storage, "v130:" + apiBase + ":");
     window.SCITANI_API_BASE = apiBase;
     const status = document.createElement("p");
@@ -2678,13 +2678,20 @@
     document.getElementById("home").append(status);
     let verifiedUntil = 0, checking;
     async function compatible() {
+      // Webová verze používá API na stejném serveru jako frontend.
+      if (!p.native && apiBase === location.origin) {
+        verifiedUntil = Date.now() + 6e4;
+        status.textContent = "Připojeno k serveru 1.4.0 · " + apiBase;
+        return true;
+      }
       if (Date.now() < verifiedUntil) return true;
       if (checking) return checking;
       checking = (async () => {
         try {
-          const r = await CapacitorHttp.request({ url: apiBase + "/health", method: "GET", responseType: "json", connectTimeout: 8e3, readTimeout: 8e3, disableRedirects: true });
-          const d = typeof r.data === "string" ? JSON.parse(r.data) : r.data;
-          if (r.status !== 200 || d.app !== "scitani-dopravy" || d.version !== "1.4.0") {
+          const r = p.native ? await CapacitorHttp.request({ url: apiBase + "/health", method: "GET", responseType: "json", connectTimeout: 8e3, readTimeout: 8e3, disableRedirects: true }) : await fetch(apiBase + "/health", { cache: "no-store" });
+          const d = p.native ? (typeof r.data === "string" ? JSON.parse(r.data) : r.data) : await r.json();
+          const statusCode = p.native ? r.status : r.status;
+          if (statusCode !== 200 || d.app !== "scitani-dopravy" || d.version !== "1.4.0") {
             status.textContent = "Nov\xE1 verze serveru je\u0161t\u011B nen\xED spu\u0161t\u011Bn\xE1. Pou\u017Eijte zat\xEDm testovac\xED aplikaci.";
             return false;
           }
