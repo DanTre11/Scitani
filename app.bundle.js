@@ -2282,7 +2282,8 @@
       vib();
       lastActivityAt = Date.now();
       presencePromptFor = 0;
-      const activeNow = JSON.parse(storage.getItem("trafficActive") || "null");
+      $("#presenceBar")?.classList.add("hidden");
+      const activeNow = JSON.parse(await storage.getItem("trafficActive") || "null");
       if (activeNow) { activeNow.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(activeNow)); }
       const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
       const r = { id: recordId(), time: (/* @__PURE__ */ new Date()).toISOString(), userId: u2.id, user: u2.name, direction: current.directions[selectedDir].name, movement: m || "", category: cats[ci].replace(/^.. /, "") };
@@ -2290,7 +2291,7 @@
       current.records.push(r);
       const sessions = db();
       sessions[current.code] = current;
-      const q = JSON.parse(storage.getItem("trafficQueue") || "[]");
+      const q = JSON.parse(await storage.getItem("trafficQueue") || "[]");
       q.push({ code: current.code, record: r });
       await storage.update({ trafficSessions: JSON.stringify(sessions), trafficQueue: JSON.stringify(q) });
       flushQueue().catch((e) => {
@@ -2577,21 +2578,38 @@
         }
       }
     }
+    $("#presenceConfirm").onclick = async () => {
+  const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
+  if (!u2) return;
+
+  const pr = await apiResult(
+    "/sessions/" + u2.code + "/users/" + u2.id + "/presence",
+    { method: "POST" }
+  );
+
+  if (pr.ok) {
+    lastActivityAt = Date.now();
+    presencePromptFor = 0;
+    $("#presenceBar").classList.add("hidden");
+
+    const a = JSON.parse(await storage.getItem("trafficActive") || "null");
+    if (a) {
+      a.lastActivityAt = lastActivityAt;
+      await storage.setItem("trafficActive", JSON.stringify(a));
+    }
+  }
+};
     setInterval(async () => {
       await flushQueue();
       await flushFinishes();
       if (JSON.parse(await storage.getItem("trafficActive") || "null")) {
         const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
-        if (u2) {
-          const idleMs = Date.now() - lastActivityAt;
-          if (idleMs >= 2 * 60 * 1000) { await finishMyCounting("inactivity"); return; }
-          if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
-            presencePromptFor = lastActivityAt;
-            if (confirm("15 minut nebylo zaznamenáno žádné vozidlo. Jste stále na stanovišti?")) {
-              const pr = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/presence", { method: "POST", headers: { "X-Participant-Token": participantToken(u2.code, u2.id) }, body: "{}" });
-              if (pr.ok) { lastActivityAt = Date.now(); presencePromptFor = 0; const a = JSON.parse(await storage.getItem("trafficActive") || "null"); if (a) { a.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(a)); } }
-            }
-          }
+       if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
+  presencePromptFor = lastActivityAt;
+  $("#presenceBar")?.classList.remove("hidden");
+}
+
+
           const r = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/heartbeat", { method: "POST", headers: { "X-Participant-Token": participantToken(u2.code, u2.id) }, body: "{}" });
           if (r.ok && r.data.autoFinished) { await finishMyCounting("inactivity"); return; }
           if (r.ok && r.data.ended) {
