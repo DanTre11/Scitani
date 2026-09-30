@@ -2589,7 +2589,7 @@
             presencePromptFor = lastActivityAt;
             if (confirm("15 minut nebylo zaznamenáno žádné vozidlo. Jste stále na stanovišti?")) {
               const pr = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/presence", { method: "POST", headers: { "X-Participant-Token": participantToken(u2.code, u2.id) }, body: "{}" });
-              if (pr.ok) { lastActivityAt = Date.now(); presencePromptFor = 0; const a = JSON.parse(storage.getItem("trafficActive") || "null"); if (a) { a.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(a)); } }
+              if (pr.ok) { lastActivityAt = Date.now(); presencePromptFor = 0; const a = JSON.parse(await storage.getItem("trafficActive") || "null"); if (a) { a.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(a)); } }
             }
           }
           const r = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/heartbeat", { method: "POST", headers: { "X-Participant-Token": participantToken(u2.code, u2.id) }, body: "{}" });
