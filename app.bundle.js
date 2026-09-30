@@ -1837,15 +1837,15 @@
     const APP_VERSION = "1.4.0";
     const IS_HOSTED = native || /^https?:$/.test(location.protocol);
     let storageUnavailable = false;
-    function savedApiBase() {
+    async function savedApiBase() {
       try {
-        return storage.getItem("trafficApiBase") || "";
+        return await storage.getItem("trafficApiBase") || "";
       } catch (e) {
         storageUnavailable = true;
         return "";
       }
     }
-    const API_BASE = (window.SCITANI_API_BASE || savedApiBase()).replace(/\/$/, "");
+    const API_BASE = (window.SCITANI_API_BASE || (await savedApiBase())).replace(/\/$/, "");
     async function requireStorage() {
       const key = "trafficStorageProbe:" + Date.now() + ":" + Math.random();
       try {
@@ -1857,7 +1857,7 @@
         return true;
       } catch (e) {
         storageUnavailable = true;
-        netStatus();
+        await netStatus();
         alert("Pro bezpe\u010Dn\xE9 ukl\xE1d\xE1n\xED s\u010D\xEDt\xE1n\xED je pot\u0159eba dostupn\xE9 \xFAlo\u017Ei\u0161t\u011B a dostatek m\xEDsta. \u017D\xE1dn\xE1 ulo\u017Een\xE1 data nebyla smaz\xE1na.");
         return false;
       }
@@ -1871,6 +1871,7 @@
     function show(id) {
       screens.forEach((x) => $(x).classList.toggle("hidden", x !== id));
       $("bottom").classList.toggle("hidden", id !== "count");
+      if (id !== "count") $("presenceBar")?.classList.add("hidden");
     }
     ;
     function vib() {
@@ -1937,27 +1938,36 @@
       directions.push({ name: "", moves: [] });
       renderDirs();
     };
-    function db() {
-      return JSON.parse(storage.getItem("trafficSessions") || "{}");
+    let mutationTail = Promise.resolve();
+    function mutateLocal(operation) {
+      const result = mutationTail.then(operation);
+      mutationTail = result.catch(() => {});
+      return result;
+    }
+    async function db() {
+      return JSON.parse(await storage.getItem("trafficSessions") || "{}");
     }
     async function saveDB(d) {
       await storage.setItem("trafficSessions", JSON.stringify(d));
     }
     async function persist() {
       if (!current) return;
-      let d = db();
-      d[current.code] = current;
-      await saveDB(d);
+      await mutateLocal(async () => {
+        let d = await db();
+        d[current.code] = current;
+        await saveDB(d);
+      });
     }
-    function queueCount() {
-      try {
-        return JSON.parse(storage.getItem("trafficQueue") || "[]").length;
-      } catch (e) {
-        return 0;
-      }
+    async function queueCount() {
+      return JSON.parse(await storage.getItem("trafficQueue") || "[]").length;
     }
-    function netStatus(mode) {
-      let b = $("netbar"), q = queueCount();
+    let statusRevision = 0, syncProblem = null;
+    async function netStatus(mode) {
+      const revision = ++statusRevision;
+      let b = $("netbar"), q;
+      try { q = await queueCount(); }
+      catch (e) { storageUnavailable = true; q = 0; }
+      if (revision !== statusRevision) return;
       if (storageUnavailable) {
         b.className = "netbar offline";
         b.textContent = "\xDAlo\u017Ei\u0161t\u011B nen\xED dostupn\xE9 \xB7 povolte ukl\xE1d\xE1n\xED dat pro tento web";
@@ -1978,14 +1988,19 @@
         b.textContent = "\u25CF Offline \xB7 " + q + " z\xE1znam\u016F \u010Dek\xE1 na odesl\xE1n\xED";
         return;
       }
+      if (syncProblem) {
+        b.className = "netbar offline";
+        b.textContent = "Synchronizace se nezdařila · " + q + " záznamů čeká na odeslání. " + apiProblem(syncProblem);
+        return;
+      }
       b.className = q ? "netbar sync" : "netbar online";
       b.textContent = q ? "\u25CF Online \xB7 " + q + " z\xE1znam\u016F \u010Dek\xE1 na synchronizaci" : "\u25CF Online \xB7 v\u0161e synchronizov\xE1no";
     }
-    function participantToken(code2, id) {
-      return storage.getItem("trafficParticipant:" + code2 + ":" + id) || "";
+    async function participantToken(code2, id) {
+      return await storage.getItem("trafficParticipant:" + code2 + ":" + id) || "";
     }
-    function adminToken(code2) {
-      return storage.getItem("trafficAdminToken:" + code2) || "";
+    async function adminToken(code2) {
+      return await storage.getItem("trafficAdminToken:" + code2) || "";
     }
     async function apiResult(path, opt = {}) {
       if (!IS_HOSTED) return { ok: false, kind: "local", status: 0 };
@@ -2034,7 +2049,7 @@
     async function api(path, opt = {}) {
       const result = await apiResult(path, opt);
       if (!result.ok) {
-        netStatus();
+        await netStatus();
         return null;
       }
       return result.data;
@@ -2052,13 +2067,17 @@
       if (!current) return null;
       let x = await api("/sessions/" + current.code);
       if (x) {
-        const pending = JSON.parse(storage.getItem("trafficQueue") || "[]").filter((q) => q.code === x.code);
-        for (const q of pending) {
-          x.records = x.records.filter((r) => r.id !== q.record.id);
-          if (q.action !== "delete") x.records.push(q.record);
-        }
-        current = x;
-        await persist();
+        await mutateLocal(async () => {
+          const pending = JSON.parse(await storage.getItem("trafficQueue") || "[]").filter((q) => q.code === x.code);
+          for (const q of pending) {
+            x.records = x.records.filter((r) => r.id !== q.record.id);
+            if (q.action !== "delete") x.records.push(q.record);
+          }
+          current = x;
+          const sessions = await db();
+          sessions[current.code] = current;
+          await saveDB(sessions);
+        });
       }
       return x;
     }
@@ -2066,29 +2085,34 @@
     async function flushQueue() {
       if (syncing) return syncing;
       syncing = (async () => {
-        netStatus("sync");
+        syncProblem = null;
+        await netStatus("sync");
         while (true) {
-          const batch = JSON.parse(storage.getItem("trafficQueue") || "[]");
+          const batch = JSON.parse(await storage.getItem("trafficQueue") || "[]");
           if (!batch.length) break;
           let failed = false;
           for (const x of batch) {
             const uid = x.record.userId;
-            const local = db()[x.code], user = local == null ? void 0 : local.users.find((u2) => u2.id === uid);
+            const local = (await db())[x.code], user = local == null ? void 0 : local.users.find((u2) => u2.id === uid);
             if (user) {
-              const joined = await apiResult("/sessions/" + x.code + "/users", { method: "POST", headers: { "X-Participant-Token": participantToken(x.code, uid) }, body: JSON.stringify(user) });
+              const joined = await apiResult("/sessions/" + x.code + "/users", { method: "POST", headers: { "X-Participant-Token": (await participantToken(x.code, uid)) }, body: JSON.stringify(user) });
               if (!joined.ok && joined.status !== 409) {
+                syncProblem = joined;
                 failed = true;
                 continue;
               }
             }
-            const result = x.action === "delete" ? await apiResult("/sessions/" + x.code + "/records/" + encodeURIComponent(x.record.id), { method: "DELETE", headers: { "X-User-ID": x.record.userId || "", "X-Participant-Token": participantToken(x.code, x.record.userId) } }) : await apiResult("/sessions/" + x.code + "/records", { method: "POST", headers: { "X-Participant-Token": participantToken(x.code, x.record.userId) }, body: JSON.stringify(x.record) });
+            const result = x.action === "delete" ? await apiResult("/sessions/" + x.code + "/records/" + encodeURIComponent(x.record.id), { method: "DELETE", headers: { "X-User-ID": x.record.userId || "", "X-Participant-Token": (await participantToken(x.code, x.record.userId)) } }) : await apiResult("/sessions/" + x.code + "/records", { method: "POST", headers: { "X-Participant-Token": (await participantToken(x.code, x.record.userId)) }, body: JSON.stringify(x.record) });
             const ok = result.ok || x.action === "delete" && result.status === 404;
             if (!ok) {
+              syncProblem = result;
               failed = true;
               continue;
             }
-            const latest = JSON.parse(storage.getItem("trafficQueue") || "[]");
-            await storage.setItem("trafficQueue", JSON.stringify(latest.filter((item) => !(item.code === x.code && item.record.id === x.record.id && (item.action || "add") === (x.action || "add")))));
+            await mutateLocal(async () => {
+              const latest = JSON.parse(await storage.getItem("trafficQueue") || "[]");
+              await storage.setItem("trafficQueue", JSON.stringify(latest.filter((item) => !(item.code === x.code && item.record.id === x.record.id && (item.action || "add") === (x.action || "add")))));
+            });
           }
           if (failed) break;
         }
@@ -2097,12 +2121,12 @@
         await syncing;
       } finally {
         syncing = null;
-        netStatus();
+        await netStatus();
       }
     }
     window.addEventListener("online", flushQueue);
-    window.addEventListener("offline", () => netStatus());
-    netStatus();
+    window.addEventListener("offline", () => { netStatus().catch(console.error); });
+    await netStatus();
     $("createCount").onclick = async () => {
       vib();
       if (!await requireStorage()) return;
@@ -2123,7 +2147,7 @@
           candidate = remote.session;
           token = remote.adminToken;
         } else token = "LOCAL-" + c + "-" + Date.now();
-        const saved = db();
+        const saved = (await db());
         saved[candidate.code] = candidate;
         await saveDB(saved);
         await storage.setItem("trafficAdminToken:" + candidate.code, token);
@@ -2149,9 +2173,9 @@
         alert("K\xF3d: " + current.code);
       }
     };
-    $("toAdmin").onclick = () => {
+    $("toAdmin").onclick = async () => {
       vib();
-      renderAdmin();
+      await renderAdmin();
       show("admin");
     };
     $("creatorChoose").onclick = () => {
@@ -2177,16 +2201,16 @@
             if (!validSession(d) || d.code !== c) return alert("Server nevr\xE1til platn\xE9 \xFAdaje s\u010D\xEDt\xE1n\xED. Ov\u011B\u0159te nasazen\xED aplikace.");
           } else if (result.status === 404) return alert("S\u010D\xEDt\xE1n\xED s k\xF3dem " + c + " na tomto serveru neexistuje. Ov\u011B\u0159te k\xF3d a stejnou adresu aplikace na obou telefonech. Star\u0161\xED k\xF3d mohl vzniknout pouze lok\xE1ln\u011B nebo se serverov\xE1 data mohla ztratit p\u0159i nov\xE9m nasazen\xED. Spr\xE1vce mus\xED vytvo\u0159it nov\xE9 spole\u010Dn\xE9 s\u010D\xEDt\xE1n\xED.");
           else if (result.kind === "network" || result.kind === "timeout") {
-            d = db()[c];
+            d = (await db())[c];
             if (!d) return alert(apiProblem(result));
           } else return alert(apiProblem(result));
-        } else d = db()[c];
+        } else d = (await db())[c];
         if (!d) return alert("V tomto za\u0159\xEDzen\xED s\u010D\xEDt\xE1n\xED s t\xEDmto k\xF3dem nen\xED. Pro p\u0159ipojen\xED mezi telefony otev\u0159ete na obou stejnou HTTPS adresu aplikace.");
         if (!validSession(d)) return alert("Ulo\u017Een\xE9 \xFAdaje s\u010D\xEDt\xE1n\xED nejsou platn\xE9.");
         if (d.ended) return alert("Toto s\u010D\xEDt\xE1n\xED ji\u017E bylo ukon\u010Deno.");
         current = d;
         await persist();
-        isCreator = storage.getItem("trafficRole:" + c) === "admin" && !!adminToken(c);
+        isCreator = (await storage.getItem("trafficRole:" + c)) === "admin" && !!(await adminToken(c));
         openSelect();
       } catch (e) {
         console.error("Join failed:", e);
@@ -2218,9 +2242,9 @@
       show("selectScreen");
     }
     ;
-    $("backFromSelect").onclick = () => {
+    $("backFromSelect").onclick = async () => {
       vib();
-      isCreator ? (renderAdmin(), show("admin")) : show("home");
+      isCreator ? ((await renderAdmin()), show("admin")) : show("home");
     };
     $("start").onclick = async () => {
       vib();
@@ -2241,6 +2265,8 @@
       lastActivityAt = started;
       presencePromptFor = 0;
       finishArmed = false;
+      $("presenceBar")?.classList.add("hidden");
+      $("finish").textContent = "Ukončit moje sčítání";
       await storage.setItem("trafficActive", JSON.stringify({ id: uid, name: n, code: current.code, started, direction: u2.direction, lastActivityAt }));
       $("placeShow").textContent = current.place;
       $("meta").textContent = [current.station, current.group, n, "K\xF3d " + current.code].join(" \xB7 ");
@@ -2283,20 +2309,22 @@
       lastActivityAt = Date.now();
       presencePromptFor = 0;
       $("presenceBar")?.classList.add("hidden");
-      const activeNow = JSON.parse(await storage.getItem("trafficActive") || "null");
-      if (activeNow) { activeNow.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(activeNow)); }
-      const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
-      const r = { id: recordId(), time: (/* @__PURE__ */ new Date()).toISOString(), userId: u2.id, user: u2.name, direction: current.directions[selectedDir].name, movement: m || "", category: cats[ci].replace(/^.. /, "") };
-      records.push(r);
-      current.records.push(r);
-      const sessions = db();
-      sessions[current.code] = current;
-      const q = JSON.parse(await storage.getItem("trafficQueue") || "[]");
-      q.push({ code: current.code, record: r });
-      await storage.update({ trafficSessions: JSON.stringify(sessions), trafficQueue: JSON.stringify(q) });
-      flushQueue().catch((e) => {
+      await mutateLocal(async () => {
+        const activeNow = JSON.parse(await storage.getItem("trafficActive") || "null");
+        if (activeNow) { activeNow.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(activeNow)); }
+        const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
+        const r = { id: recordId(), time: (/* @__PURE__ */ new Date()).toISOString(), userId: u2.id, user: u2.name, direction: current.directions[selectedDir].name, movement: m || "", category: cats[ci].replace(/^.. /, "") };
+        records.push(r);
+        current.records.push(r);
+        const sessions = (await db());
+        sessions[current.code] = current;
+        const q = JSON.parse(await storage.getItem("trafficQueue") || "[]");
+        q.push({ code: current.code, record: r });
+        await storage.update({ trafficSessions: JSON.stringify(sessions), trafficQueue: JSON.stringify(q) });
+      });
+      flushQueue().catch(async (e) => {
         console.error(e);
-        netStatus();
+        await netStatus();
       });
     }
     ;
@@ -2320,37 +2348,41 @@
     ;
     $("undo").onclick = async () => {
       vib();
-      const r = records.pop();
-      if (r) {
-        const i = current.records.findIndex((x) => x.id && x.id === r.id || x.time + x.userId === r.time + r.userId);
-        if (i >= 0) current.records.splice(i, 1);
-        const sessions = db();
-        sessions[current.code] = current;
-        const q = JSON.parse(storage.getItem("trafficQueue") || "[]").filter((x) => !(x.code === current.code && x.record.id === r.id));
-        if (r.id) q.push({ code: current.code, record: r, action: "delete" });
-        await storage.update({ trafficSessions: JSON.stringify(sessions), trafficQueue: JSON.stringify(q) });
-        flushQueue().catch((e) => {
-          console.error(e);
-          netStatus();
-        });
-      }
+      await mutateLocal(async () => {
+        const r = records.pop();
+        if (r) {
+          const i = current.records.findIndex((x) => x.id && x.id === r.id || x.time + x.userId === r.time + r.userId);
+          if (i >= 0) current.records.splice(i, 1);
+          const sessions = (await db());
+          sessions[current.code] = current;
+          const q = JSON.parse(await storage.getItem("trafficQueue") || "[]").filter((x) => !(x.code === current.code && x.record.id === r.id));
+          if (r.id) q.push({ code: current.code, record: r, action: "delete" });
+          await storage.update({ trafficSessions: JSON.stringify(sessions), trafficQueue: JSON.stringify(q) });
+        }
+      });
+      flushQueue().catch(async (e) => {
+        console.error(e);
+        await netStatus();
+      });
       showStats();
     };
     async function finishMyCounting(reason = "manual") {
-      await storage.removeItem("trafficActive");
-      const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
-      const pending = JSON.parse(storage.getItem("trafficFinishes") || "[]");
-      pending.push({ code: current.code, id: u2.id, reason });
-      await storage.setItem("trafficFinishes", JSON.stringify(pending));
+      await mutateLocal(async () => {
+        await storage.removeItem("trafficActive");
+        const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
+        const pending = JSON.parse(await storage.getItem("trafficFinishes") || "[]");
+        if (!pending.some((x) => x.code === current.code && x.id === u2.id)) pending.push({ code: current.code, id: u2.id, reason });
+        await storage.setItem("trafficFinishes", JSON.stringify(pending));
+      });
       await flushQueue();
       await flushFinishes();
       clearInterval(timer);
       $("sheet").classList.remove("open");
-      isCreator = isCreator || storage.getItem("trafficRole:" + current.code) === "admin" && !!adminToken(current.code);
+      isCreator = isCreator || (await storage.getItem("trafficRole:" + current.code)) === "admin" && !!(await adminToken(current.code));
       renderUserFinal();
       $("creatorFinishActions").classList.toggle("hidden", !isCreator);
       show("finishUser");
-      if (reason === "inactivity") alert("Vaše sčítání bylo po 30 minutách bez aktivity automaticky ukončeno.");
+      if (reason === "inactivity") alert("Vaše sčítání bylo po 2 minutách bez aktivity automaticky ukončeno.");
     }
     $("finish").onclick = async () => {
       vib();
@@ -2467,8 +2499,8 @@
       let u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "{}");
       await buildExcel(records, "scitani-" + safeName(current.station) + "-" + safeName(u2.name) + ".xlsx");
     };
-    function renderAdminBase() {
-      current = db()[current.code] || current;
+    async function renderAdminBase() {
+      current = (await db())[current.code] || current;
       $("adminCode").textContent = current.code;
       $("adminMeta").innerHTML = `<b>${esc(current.place)}</b><div class="muted">${esc(current.station)} \xB7 ${esc(current.group)} \xB7 ${current.records.length} spole\u010Dn\xFDch z\xE1znam\u016F</div>`;
       $("adminDirs").innerHTML = current.directions.map((d) => `<div class="adminRow"><b>${esc(d.name)}</b><div>${d.moves.length ? d.moves.map((m) => `<span class="pill">${esc(m)}</span>`).join("") : '<span class="muted">Bez rozli\u0161en\xED pohyb\u016F</span>'}</div></div>`).join("");
@@ -2478,7 +2510,7 @@
     $("adminRefresh").onclick = async () => {
       vib();
       await syncCurrent();
-      renderAdmin();
+      await renderAdmin();
     };
     $("adminCount").onclick = () => {
       vib();
@@ -2489,27 +2521,27 @@
       await syncCurrent();
       await buildExcel(current.records, "spolecne-scitani-" + current.code + ".xlsx");
     };
-    $("adminEnd").onclick = () => {
+    $("adminEnd").onclick = async () => {
       vib();
-      current = db()[current.code] || current;
+      current = (await db())[current.code] || current;
       let active2 = current.users || [];
       $("endConfirmMeta").innerHTML = `<div class="adminRow"><b>${esc(current.place)}</b><div class="muted">${esc(current.station)} \xB7 ${esc(current.group)}</div></div><div class="adminRow"><b>P\u0159ipojen\xED s\u010D\xEDta\u010Di</b><div>${active2.length}</div></div><div class="adminRow"><b>Dosud zaznamen\xE1no</b><div>${current.records.length} vozidel</div></div>`;
       show("adminEndConfirm");
     };
-    $("cancelAdminEnd").onclick = () => {
+    $("cancelAdminEnd").onclick = async () => {
       vib();
-      renderAdmin();
+      await renderAdmin();
       show("admin");
     };
     $("confirmAdminEnd").onclick = async () => {
       vib();
       await storage.flush();
       await flushQueue();
-      if (JSON.parse(storage.getItem("trafficQueue") || "[]").some((x) => x.code === current.code)) return alert("P\u0159ed ukon\u010Den\xEDm nejprve ode\u0161lete \u010Dekaj\xEDc\xED z\xE1znamy tohoto za\u0159\xEDzen\xED. Ov\u011B\u0159te p\u0159ipojen\xED.");
+      if (JSON.parse(await storage.getItem("trafficQueue") || "[]").some((x) => x.code === current.code)) return alert("P\u0159ed ukon\u010Den\xEDm nejprve ode\u0161lete \u010Dekaj\xEDc\xED z\xE1znamy tohoto za\u0159\xEDzen\xED. Ov\u011B\u0159te p\u0159ipojen\xED.");
       current.ended = true;
       current.endedAt = (/* @__PURE__ */ new Date()).toISOString();
       await persist();
-      let ended = IS_HOSTED ? await api("/sessions/" + current.code + "/end", { method: "POST", headers: { "X-Admin-Token": adminToken(current.code) }, body: JSON.stringify({ endedAt: current.endedAt }) }) : current;
+      let ended = IS_HOSTED ? await api("/sessions/" + current.code + "/end", { method: "POST", headers: { "X-Admin-Token": (await adminToken(current.code)) }, body: JSON.stringify({ endedAt: current.endedAt }) }) : current;
       if (!ended) {
         current.ended = false;
         current.endedAt = null;
@@ -2519,7 +2551,7 @@
       current = ended;
       await persist();
       if (IS_HOSTED) await syncCurrent();
-      renderAdminFinal();
+      await renderAdminFinal();
       show("finishAdmin");
     };
     function catCounts(rs) {
@@ -2540,13 +2572,13 @@
     function renderUserFinal() {
       $("userFinal").innerHTML = summaryHtml(records, true);
     }
-    function renderAdminFinal() {
-      current = db()[current.code] || current;
+    async function renderAdminFinal() {
+      current = (await db())[current.code] || current;
       $("adminFinal").innerHTML = summaryHtml(current.records, false);
     }
-    $("creatorToAdmin").onclick = () => {
+    $("creatorToAdmin").onclick = async () => {
       vib();
-      renderAdmin();
+      await renderAdmin();
       show("admin");
     };
     $("userHome").onclick = () => {
@@ -2568,69 +2600,82 @@
     await platform2.onResume(() => {
       flushQueue().catch((e) => console.warn("Sync on resume:", e));
     });
+    let finishing = null;
     async function flushFinishes() {
-      const pending = JSON.parse(await storage.getItem("trafficFinishes") || "[]");
-      for (const x of pending) {
-        if (JSON.parse(await storage.getItem("trafficQueue") || "[]").some((q) => q.code === x.code && q.record.userId === x.id)) continue;
-        const result = await apiResult("/sessions/" + x.code + "/users/" + x.id + "/finish", { method: "POST", headers: { "X-Participant-Token": participantToken(x.code, x.id) }, body: JSON.stringify({ reason: x.reason || "manual" }) });
-        if (result.ok) {
-          await storage.setItem("trafficFinishes", JSON.stringify(JSON.parse(await storage.getItem("trafficFinishes") || "[]").filter((y) => y.code !== x.code || y.id !== x.id)));
-        }
-      }
-    }
-    $("presenceConfirm").onclick = async () => {
-  const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
-  if (!u2) return;
-
-  const pr = await apiResult(
-    "/sessions/" + u2.code + "/users/" + u2.id + "/presence",
-    {
-  method: "POST",
-  headers: { "X-Participant-Token": participantToken(u2.code, u2.id) },
-  body: "{}"
-}
-  );
-
-  if (pr.ok) {
-    lastActivityAt = Date.now();
-    presencePromptFor = 0;
-    $("presenceBar").classList.add("hidden");
-
-    const a = JSON.parse(await storage.getItem("trafficActive") || "null");
-    if (a) {
-      a.lastActivityAt = lastActivityAt;
-      await storage.setItem("trafficActive", JSON.stringify(a));
-    }
-  }
-};
-    setInterval(async () => {
-      await flushQueue();
-      await flushFinishes();
-      if (JSON.parse(await storage.getItem("trafficActive") || "null")) {
-        const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
-if (!u2) return;
-const idleMs = Date.now() - lastActivityAt;
-
-if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
-         presencePromptFor = lastActivityAt;
-  $("presenceBar")?.classList.remove("hidden");
-}
-
-
-          const r = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/heartbeat", { method: "POST", headers: { "X-Participant-Token": participantToken(u2.code, u2.id) }, body: "{}" });
-          if (r.ok && r.data.autoFinished) { await finishMyCounting("inactivity"); return; }
-          if (r.ok && r.data.ended) {
-            await storage.removeItem("trafficActive");
-            clearInterval(timer);
-            $("sheet").classList.remove("open");
-            renderUserFinal();
-            show("finishUser");
+      if (finishing) return finishing;
+      finishing = (async () => {
+        const pending = JSON.parse(await storage.getItem("trafficFinishes") || "[]");
+        for (const x of pending) {
+          if (JSON.parse(await storage.getItem("trafficQueue") || "[]").some((q) => q.code === x.code && q.record.userId === x.id)) continue;
+          const result = await apiResult("/sessions/" + x.code + "/users/" + x.id + "/finish", { method: "POST", headers: { "X-Participant-Token": await participantToken(x.code, x.id) }, body: JSON.stringify({ reason: x.reason || "manual" }) });
+          if (result.ok) {
+            await mutateLocal(async () => {
+              const latest = JSON.parse(await storage.getItem("trafficFinishes") || "[]");
+              await storage.setItem("trafficFinishes", JSON.stringify(latest.filter((y) => y.code !== x.code || y.id !== x.id)));
+            });
           }
         }
+      })();
+      try { await finishing; }
+      finally { finishing = null; }
+    }
+    $("presenceConfirm").onclick = async () => {
+      const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
+      if (!u2) return;
+      const button = $("presenceConfirm");
+      if (button.disabled) return;
+      button.disabled = true;
+      try {
+        const pr = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/presence", {
+          method: "POST",
+          headers: { "X-Participant-Token": await participantToken(u2.code, u2.id) },
+          body: "{}"
+        });
+        if (!pr.ok) return alert("Potvrzení přítomnosti se nepodařilo odeslat. " + apiProblem(pr));
+        lastActivityAt = Date.now();
+        presencePromptFor = 0;
+        $("presenceBar").classList.add("hidden");
+        await mutateLocal(async () => {
+          const active = JSON.parse(await storage.getItem("trafficActive") || "null");
+          if (active && active.code === u2.code && active.id === u2.id) {
+            active.lastActivityAt = lastActivityAt;
+            await storage.setItem("trafficActive", JSON.stringify(active));
+          }
+        });
+      } finally { button.disabled = false; }
+    };
+    let maintenanceRunning = false;
+    setInterval(async () => {
+      if (maintenanceRunning) return;
+      maintenanceRunning = true;
+      try {
+        const active = JSON.parse(await storage.getItem("trafficActive") || "null");
+        const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
+        if (active && u2 && Date.now() - lastActivityAt >= 60e3 && presencePromptFor !== lastActivityAt) {
+          presencePromptFor = lastActivityAt;
+          $("presenceBar")?.classList.remove("hidden");
+        }
+        await flushQueue();
+        await flushFinishes();
+        if (!active || !u2 || !JSON.parse(await storage.getItem("trafficActive") || "null")) return;
+        const r = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/heartbeat", { method: "POST", headers: { "X-Participant-Token": await participantToken(u2.code, u2.id) }, body: "{}" });
+        if (r.ok && r.data.ended) {
+          await storage.removeItem("trafficActive");
+          clearInterval(timer);
+          $("sheet").classList.remove("open");
+          renderUserFinal();
+          show("finishUser");
+        } else if (r.ok && r.data.autoFinished) {
+          await finishMyCounting("inactivity");
+        }
+      } catch (e) {
+        console.warn("Periodic sync:", e);
+        await netStatus();
+      } finally { maintenanceRunning = false; }
     }, 15e3);
     const active = JSON.parse(await storage.getItem("trafficActive") || "null");
     if (active) {
-      const saved = db()[active.code];
+      const saved = (await db())[active.code];
       if (saved && !saved.ended) {
         const dir = saved.directions.findIndex((d) => d.name === active.direction);
         if (dir >= 0) {
@@ -2642,7 +2687,7 @@ if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
           presencePromptFor = 0;
           records = mine;
           sessionStorage.setItem("trafficUser", JSON.stringify({ id: active.id, name: active.name, code: active.code }));
-          isCreator = !!adminToken(active.code);
+          isCreator = !!(await adminToken(active.code));
           $("placeShow").textContent = current.place;
           $("meta").textContent = [current.station, current.group, active.name, "K\xF3d " + current.code].join(" \xB7 ");
           $("directionShow").textContent = "S\u010D\xEDt\xE1te: " + active.direction;
@@ -2659,7 +2704,7 @@ if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
       current = r.data;
       isCreator = true;
       await persist();
-      renderAdmin();
+      await renderAdmin();
       show("admin");
     }, create() {
       show("setup");
@@ -2668,8 +2713,8 @@ if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
     }, busy() {
       return !$("count").classList.contains("hidden");
     } });
-    function renderAdmin() {
-      renderAdminBase();
+    async function renderAdmin() {
+      await renderAdminBase();
       $("adminCount").classList.toggle("hidden", !!current.ended);
       $("adminEnd").classList.toggle("hidden", !!current.ended);
       let form = $("metadataForm");
@@ -2681,11 +2726,11 @@ if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
       form.innerHTML = "<details><summary>Upravit \xFAdaje s\u010D\xEDt\xE1n\xED</summary>" + ["place", "station", "group"].map((k, i) => "<label>" + ["Lokalita", "Stanovi\u0161t\u011B", "Skupina"][i] + '<input name="' + k + '" value="' + esc(current[k]) + '" required maxlength="300"></label>').join("") + '<button class="btn secondary">Ulo\u017Eit \xFAdaje</button></details>';
       form.onsubmit = async (e) => {
         e.preventDefault();
-        const r = await apiResult("/sessions/" + current.code + "/manage", { method: "PATCH", headers: { "X-Admin-Token": adminToken(current.code) }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+        const r = await apiResult("/sessions/" + current.code + "/manage", { method: "PATCH", headers: { "X-Admin-Token": (await adminToken(current.code)) }, body: JSON.stringify(Object.fromEntries(new FormData(form))) });
         if (!r.ok) return alert("\xDApravu se nepoda\u0159ilo ulo\u017Eit. Ov\u011B\u0159te p\u0159ihl\xE1\u0161en\xED a opr\xE1vn\u011Bn\xED.");
         current = r.data;
         await persist();
-        renderAdmin();
+        await renderAdmin();
       };
     }
   }
