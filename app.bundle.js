@@ -2604,8 +2604,11 @@
       await flushFinishes();
       if (JSON.parse(await storage.getItem("trafficActive") || "null")) {
         const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
-       if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
-  presencePromptFor = lastActivityAt;
+if (!u2) return;
+const idleMs = Date.now() - lastActivityAt;
+
+if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
+         presencePromptFor = lastActivityAt;
   $("#presenceBar")?.classList.remove("hidden");
 }
 
