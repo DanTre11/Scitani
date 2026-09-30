@@ -2584,8 +2584,8 @@
         const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
         if (u2) {
           const idleMs = Date.now() - lastActivityAt;
-          if (idleMs >= 30 * 60 * 1000) { await finishMyCounting("inactivity"); return; }
-          if (idleMs >= 15 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
+          if (idleMs >= 2 * 60 * 1000) { await finishMyCounting("inactivity"); return; }
+          if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
             presencePromptFor = lastActivityAt;
             if (confirm("15 minut nebylo zaznamenáno žádné vozidlo. Jste stále na stanovišti?")) {
               const pr = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/presence", { method: "POST", headers: { "X-Participant-Token": participantToken(u2.code, u2.id) }, body: "{}" });
@@ -2678,12 +2678,6 @@
     document.getElementById("home").append(status);
     let verifiedUntil = 0, checking;
     async function compatible() {
-      // Webová verze používá API na stejném serveru jako frontend.
-      if (!p.native && apiBase === location.origin) {
-        verifiedUntil = Date.now() + 6e4;
-        status.textContent = "Připojeno k serveru 1.4.0 · " + apiBase;
-        return true;
-      }
       if (Date.now() < verifiedUntil) return true;
       if (checking) return checking;
       checking = (async () => {
