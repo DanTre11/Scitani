@@ -2569,12 +2569,12 @@
       flushQueue().catch((e) => console.warn("Sync on resume:", e));
     });
     async function flushFinishes() {
-      const pending = JSON.parse(storage.getItem("trafficFinishes") || "[]");
+      const pending = JSON.parse(await storage.getItem("trafficFinishes") || "[]");
       for (const x of pending) {
-        if (JSON.parse(storage.getItem("trafficQueue") || "[]").some((q) => q.code === x.code && q.record.userId === x.id)) continue;
+        if (JSON.parse(await storage.getItem("trafficQueue") || "[]").some((q) => q.code === x.code && q.record.userId === x.id)) continue;
         const result = await apiResult("/sessions/" + x.code + "/users/" + x.id + "/finish", { method: "POST", headers: { "X-Participant-Token": participantToken(x.code, x.id) }, body: JSON.stringify({ reason: x.reason || "manual" }) });
         if (result.ok) {
-          await storage.setItem("trafficFinishes", JSON.stringify(JSON.parse(storage.getItem("trafficFinishes") || "[]").filter((y) => y.code !== x.code || y.id !== x.id)));
+          await storage.setItem("trafficFinishes", JSON.stringify(JSON.parse(await storage.getItem("trafficFinishes") || "[]").filter((y) => y.code !== x.code || y.id !== x.id)));
         }
       }
     }
@@ -2623,9 +2623,8 @@ if (idleMs >= 1 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
             show("finishUser");
           }
         }
-      }
     }, 15e3);
-    const active = JSON.parse(storage.getItem("trafficActive") || "null");
+    const active = JSON.parse(await storage.getItem("trafficActive") || "null");
     if (active) {
       const saved = db()[active.code];
       if (saved && !saved.ended) {
