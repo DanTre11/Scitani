@@ -2382,7 +2382,7 @@
       renderUserFinal();
       $("creatorFinishActions").classList.toggle("hidden", !isCreator);
       show("finishUser");
-      if (reason === "inactivity") alert("Vaše sčítání bylo po 2 minutách bez aktivity automaticky ukončeno.");
+      if (reason === "inactivity") alert("Vaše sčítání bylo po 20 minutách bez aktivity automaticky ukončeno.");
     }
     $("finish").onclick = async () => {
       vib();
@@ -2651,7 +2651,7 @@
       try {
         const active = JSON.parse(await storage.getItem("trafficActive") || "null");
         const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
-        if (active && u2 && Date.now() - lastActivityAt >= 60e3 && presencePromptFor !== lastActivityAt) {
+        if (active && u2 && Date.now() - lastActivityAt >= 10 * 60 * 1000 && presencePromptFor !== lastActivityAt) {
           presencePromptFor = lastActivityAt;
           $("presenceBar")?.classList.remove("hidden");
         }
