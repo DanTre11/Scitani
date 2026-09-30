@@ -2374,15 +2374,16 @@
         if (!pending.some((x) => x.code === current.code && x.id === u2.id)) pending.push({ code: current.code, id: u2.id, reason });
         await storage.setItem("trafficFinishes", JSON.stringify(pending));
       });
-      await flushQueue();
-      await flushFinishes();
       clearInterval(timer);
       $("sheet").classList.remove("open");
       isCreator = isCreator || (await storage.getItem("trafficRole:" + current.code)) === "admin" && !!(await adminToken(current.code));
+      $("presenceBar")?.classList.add("hidden");
       renderUserFinal();
+      if (reason === "inactivity") $("userFinal").insertAdjacentHTML("afterbegin", '<p class="muted">Vaše sčítání bylo po 20 minutách bez aktivity automaticky ukončeno.</p>');
       $("creatorFinishActions").classList.toggle("hidden", !isCreator);
       show("finishUser");
-      if (reason === "inactivity") alert("Vaše sčítání bylo po 20 minutách bez aktivity automaticky ukončeno.");
+      await flushQueue();
+      await flushFinishes();
     }
     $("finish").onclick = async () => {
       vib();
