@@ -2580,7 +2580,7 @@
     setInterval(async () => {
       await flushQueue();
       await flushFinishes();
-      if (!$("count").classList.contains("hidden")) {
+      if (JSON.parse(sessionStorage.getItem("trafficActive") || "null")) {
         const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
         if (u2) {
           const idleMs = Date.now() - lastActivityAt;
