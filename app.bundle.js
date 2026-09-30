@@ -2282,7 +2282,7 @@
       vib();
       lastActivityAt = Date.now();
       presencePromptFor = 0;
-      $("#presenceBar")?.classList.add("hidden");
+      $("presenceBar")?.classList.add("hidden");
       const activeNow = JSON.parse(await storage.getItem("trafficActive") || "null");
       if (activeNow) { activeNow.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(activeNow)); }
       const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
