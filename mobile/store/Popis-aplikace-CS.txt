@@ -1,0 +1,16 @@
+Název: Sčítání dopravy
+Krátký popis: Skupinové sčítání vozidel, sdílené výsledky a export do Excelu.
+
+Sčítejte dopravu společně na více stanovištích. Organizátor vytvoří sčítání a účastníci se připojí pomocí kódu. Každý zvolí své stanoviště a zaznamenává osobní auta, nákladní auta, kamiony a autobusy.
+
+- Vlastní směry a pohyby vozidel.
+- Záznamy uložené v telefonu při dočasném výpadku internetu.
+- Synchronizace společných výsledků po obnovení připojení.
+- Vibrační odezva při započítání vozidla.
+- Souhrny a sdílení Excelu.
+- Evidence pracovní doby a nastavené hodinové odměny.
+- Upozornění po 10 minutách nečinnosti a ukončení po 20 minutách.
+
+Pro vytvoření a připojení ke společnému sčítání je potřeba internet.
+
+Před zveřejněním doplnit: kontakt podpory a URL zásad ochrany osobních údajů.

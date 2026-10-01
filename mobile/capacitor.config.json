@@ -1,0 +1,9 @@
+{
+  "appId":"org.scitanidopravnihoproudu.app",
+  "appName":"Sčítání dopravy",
+  "webDir":"www",
+  "server":{"androidScheme":"https","hostname":"localhost","cleartext":false},
+  "android":{"allowMixedContent":false},
+  "ios":{"contentInset":"automatic"},
+  "plugins":{"CapacitorHttp":{"enabled":false}}
+}
