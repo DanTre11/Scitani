@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { spawn } = require('node:child_process');
 const workSummary = require('../work-summary');
+const trafficStats = require('../traffic-stats');
 let child, origin, dir;
 const now = Date.now(), iso = ms => new Date(ms).toISOString();
 const fixture = (code, idle) => ({code, place:'Test',station:'A',group:'Audit',hourlyRate:180,directions:[{name:'A',moves:[]},{name:'B',moves:[]}],users:[{id:'u',name:'Test',direction:'A',joined:iso(now-3600000),lastActivity:iso(now-idle),participantToken:'secret'}],records:[],adminToken:'admin',created:iso(now-3600000),ended:false});
@@ -79,7 +80,7 @@ test('real Excel export and final screen use identical hours, rate, reward and r
  const source=fs.readFileSync(path.join(__dirname,'../app.bundle.js'),'utf8');
  const current={place:'Test',station:'A',group:'Test',code:'ABC123',hourlyRate:200,directions:[{name:'A',moves:[]}],records:[],users:[{id:'u',name:'Test',direction:'A',joined:'2026-01-01T10:00:00Z',finishedAt:'2026-01-01T10:20:00Z',finishReason:'inactivity'}]};
  let files;const nodes={};const el=id=>nodes[id]||(nodes[id]={classList:{add(){},toggle(){},contains(){return false}},querySelector(){return el('message')}});
- const ctx=vm.createContext({current,records:[],cats:['🚗 Osobní auta','🚚 Nákladní auta','🚛 Kamiony','🚌 Autobusy'],workSummary,window:{trafficWorkSummary:workSummary},sessionStorage:{getItem:()=>JSON.stringify({id:'u',name:'Test'})},$:el,isCreator:false,esc:s=>String(s),platform2:{exportFile:async()=>{}},zipStore:x=>{files=x;},summaryHtml:()=>''});
+ const ctx=vm.createContext({current,records:[],cats:['🚗 Osobní auta','🚚 Nákladní auta','🚛 Kamiony','🚌 Autobusy'],workSummary,window:{trafficWorkSummary:workSummary,trafficStats},sessionStorage:{getItem:()=>JSON.stringify({id:'u',name:'Test'})},$:el,isCreator:false,esc:s=>String(s),platform2:{exportFile:async()=>{}},zipStore:x=>{files=x;},summaryHtml:()=>''});
  vm.runInContext(source.slice(source.indexOf('    const workSummary =')+ '    const workSummary = window.trafficWorkSummary;'.length,source.indexOf('    function crc32')),ctx);
  vm.runInContext(source.slice(source.indexOf('    function xesc'),source.indexOf('    $("export").onclick')),ctx);
  vm.runInContext(source.slice(source.indexOf('    function renderUserFinal()'),source.indexOf('    async function acceptServerFinish')),ctx);

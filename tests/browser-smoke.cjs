@@ -13,7 +13,7 @@ const workSummary=require('../work-summary');
  async function start(){server=spawn(process.execPath,['server.js'],{cwd:path.join(__dirname,'..'),env:{...process.env,PORT:String(port),DATA_FILE:dataFile},stdio:['ignore','pipe','inherit']});return new Promise(resolve=>server.stdout.on('data',b=>{const m=b.toString().match(/localhost:(\d+)/);if(m){port=Number(m[1]);resolve('http://127.0.0.1:'+port);}}));}
  async function stop(){const exited=once(server,'exit');server.kill();await exited;}
  try {
- const origin=await start();browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+ const origin=await start();browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{}),args:['--no-sandbox']});
  const contexts=await Promise.all([browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block'}),browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block'})]);
  const [admin,user]=await Promise.all(contexts.map(c=>c.newPage()));const errors=[];
  for(const p of [admin,user]){p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>d.accept());await p.goto(origin);await p.locator('#appContent').waitFor({state:'visible'});}
