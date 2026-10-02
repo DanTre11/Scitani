@@ -3,3 +3,8 @@
 .sheet{visibility:hidden;pointer-events:none}.sheet.open{visibility:visible;pointer-events:auto}
 
 .passwordToggle{display:flex;align-items:center;gap:10px;min-height:44px;font-size:14px;font-weight:500;cursor:pointer}.passwordToggle input{width:18px;height:18px;margin:0;accent-color:var(--accent)}
+
+/* Branding extension points: retain the existing palette until school assets arrive. */
+:root{--brand-accent:var(--accent);--brand-background:#f2f6f4;--brand-surface:#fff;--brand-text:var(--ink);--brand-font:Inter,Segoe UI,system-ui,sans-serif}
+body{background:var(--brand-background);color:var(--brand-text);font-family:var(--brand-font)}.primary{background:var(--brand-accent)}.card{background-color:var(--brand-surface)}.schoolLogo{max-width:150px;max-height:56px;object-fit:contain}
+.categoryOption{display:flex;gap:10px;align-items:center}.categoryOption input{width:20px;height:20px}.tramGrid{grid-template-columns:1fr}.tramGrid .vehicle{min-height:180px;font-size:30px}.trafficSummary{margin:16px 0;overflow-wrap:anywhere}.trafficSummary .stat b{white-space:nowrap}

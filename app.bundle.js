@@ -1632,7 +1632,7 @@
   async function initAccounts(app) {
     const panel = document.getElementById("accountPanel"), profile = document.getElementById("profile");
     const esc = (v) => String(v != null ? v : "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-    const errors = { server_version: "Server zat\xEDm nepou\u017E\xEDv\xE1 verzi 1.4.0. Nastavte adresu testovac\xEDho serveru.", invalid_credentials: "Nespr\xE1vn\xFD e-mail nebo heslo.", try_later: "P\u0159\xEDli\u0161 mnoho pokus\u016F. Zkuste to za 15 minut.", password_length: "Heslo mus\xED m\xEDt 12 a\u017E 128 znak\u016F.", email_exists: "Tento e-mail u\u017E m\xE1 \xFA\u010Det.", login_required: "P\u0159ihlaste se pros\xEDm znovu.", forbidden: "K t\xE9to operaci nem\xE1te opr\xE1vn\u011Bn\xED." };
+    const errors = { server_version: "Server zat\xEDm nepou\u017E\xEDv\xE1 verzi 1.5.0. Nastavte adresu testovac\xEDho serveru.", invalid_credentials: "Nespr\xE1vn\xFD e-mail nebo heslo.", try_later: "P\u0159\xEDli\u0161 mnoho pokus\u016F. Zkuste to za 15 minut.", password_length: "Heslo mus\xED m\xEDt 12 a\u017E 128 znak\u016F.", email_exists: "Tento e-mail u\u017E m\xE1 \xFA\u010Det.", login_required: "P\u0159ihlaste se pros\xEDm znovu.", forbidden: "K t\xE9to operaci nem\xE1te opr\xE1vn\u011Bn\xED." };
     async function req(path, method = "GET", data) {
       const r = await window.trafficNativeRequest(window.SCITANI_API_BASE + "/api/" + path, { method, credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: data ? JSON.stringify(data) : void 0 });
       const x = await r.json();
@@ -1667,6 +1667,7 @@
     }
     function login(register = false) {
       render(`<span class="eyebrow">${register ? "NOV\xDD \xDA\u010CET" : "V\xCDTEJTE ZP\u011AT"}</span><h2>${register ? "Vytvo\u0159it \xFA\u010Det s\u010D\xEDta\u010De" : "P\u0159ihl\xE1\u0161en\xED"}</h2><p class="muted">Jednor\xE1zov\xE9 s\u010D\xEDt\xE1n\xED m\u016F\u017Eete d\xE1l pou\u017E\xEDvat bez \xFA\u010Dtu.</p><form id="loginForm">${register ? '<label for="accountName">Jm\xE9no</label><input id="accountName" name="name" required maxlength="100" autocomplete="name">' : ""}<label for="email">E-mail</label><input id="email" name="email" type="email" required autocomplete="username"><label for="password">Heslo</label><input id="password" name="password" type="password" required minlength="12" maxlength="128" autocomplete="${register ? "new-password" : "current-password"}"><label class="passwordToggle"><input id="showPassword" type="checkbox" aria-controls="password">Zobrazit heslo</label><button class="btn primary">${register ? "Vytvo\u0159it \xFA\u010Det" : "P\u0159ihl\xE1sit se"}</button></form><button id="switchAuth" class="btn secondary back">${register ? "U\u017E m\xE1m \xFA\u010Det" : "Vytvo\u0159it \xFA\u010Det s\u010D\xEDta\u010De"}</button>`);
+      panel.insertAdjacentHTML('beforeend','<aside class="authBrand" aria-label="Školní vizuál"><img src="/brand/school-pattern.png" alt="" width="1920" height="1080"><div><span>SPŠ DOPRAVNÍ</span><h3>Sčítání dopravy</h3><p>Správa průzkumů a společné výsledky na jednom místě.</p></div></aside>');
       panel.querySelector("#showPassword").onchange = (e) => {
         panel.querySelector("#password").type = e.target.checked ? "text" : "password";
       };
@@ -1834,7 +1835,7 @@
   async function initApp(platform2) {
     enableSheetSwipe(document.getElementById("sheet"));
     const { storage, native } = platform2;
-    const APP_VERSION = "1.4.0";
+    const APP_VERSION = "1.5.0";
     const IS_HOSTED = native || /^https?:$/.test(location.protocol);
     let storageUnavailable = false;
     async function savedApiBase() {
@@ -1865,7 +1866,10 @@
     function recordId() {
       return window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : Date.now() + "-" + Math.random();
     }
-    const cats = ["\u{1F697} Osobn\xED auta", "\u{1F69A} N\xE1kladn\xED auta", "\u{1F69B} Kamiony", "\u{1F68C} Autobusy"];
+    const trafficStats = window.trafficStats;
+    function activeCats(direction) { return (direction ? trafficStats.forDirection(current,direction) : trafficStats.categories(current)).map(c=>c.icon+' '+c.label); }
+    function selectedCategories(){return [...document.querySelectorAll('[data-category]:checked')].map(x=>x.dataset.category);}
+
     let directions = [{ name: "", moves: [] }, { name: "", moves: [] }], current = null, records = [], selectedDir = null, started = null, timer = null, isCreator = false, lastActivityAt = Date.now(), presencePromptFor = 0, finishArmed = false;
     const $ = (id) => document.getElementById(id), screens = ["home", "setup", "created", "join", "selectScreen", "admin", "adminEndConfirm", "finishUser", "finishAdmin", "count"];
     function show(id) {
@@ -1896,8 +1900,10 @@
       directions.forEach((d, i) => {
         let c = document.createElement("div");
         c.className = "directionCard";
-        c.innerHTML = `<div class="directionHead"><div><label>Sm\u011Br ${i + 1}</label><input data-dir="${i}" value="${esc(d.name)}" placeholder="nap\u0159. P\u0159\xEDjezd od Prahy"></div>${i > 1 ? `<button class="btn secondary" data-del-dir="${i}">\u2715</button>` : ""}</div><div id="moves-${i}"></div><button class="btn secondary" style="margin-top:10px" data-add-move="${i}">\uFF0B P\u0159idat pohyb / odbo\u010Den\xED</button>`;
+        c.innerHTML = `<div class="directionHead"><div><label>Sm\u011Br ${i + 1}</label><input data-dir="${i}" value="${esc(d.name)}" placeholder="nap\u0159. P\u0159\xEDjezd od Prahy"></div>${directions.length > 1 ? `<button class="btn secondary" data-del-dir="${i}">\u2715</button>` : ""}</div><div id="moves-${i}"></div><button class="btn secondary" style="margin-top:10px" data-add-move="${i}">\uFF0B P\u0159idat pohyb / odbo\u010Den\xED</button>`;
+        if(selectedCategories().includes('tram'))c.innerHTML += '<label>Typ směru<select data-mode="'+i+'"><option value="road">Silniční doprava</option><option value="tram">Tramvajové stanoviště / směr</option></select></label>';
         host.appendChild(c);
+        if(c.querySelector('[data-mode]')){c.querySelector('[data-mode]').value=d.mode||'road';c.querySelector('[data-mode]').onchange=e=>{d.mode=e.target.value;};}
         renderMoves(i);
       });
       host.querySelectorAll("[data-dir]").forEach((x) => x.oninput = (e) => directions[+e.target.dataset.dir].name = e.target.value);
@@ -1923,6 +1929,8 @@
       });
     }
     ;
+    $("categoryOptions").innerHTML=trafficStats.registry.map(c=>'<label class="categoryOption"><input type="checkbox" data-category="'+c.id+'" '+(c.mode==='road'?'checked':'')+'>'+esc(c.label)+'</label>').join('');
+    $("categoryOptions").onchange=()=>{if(!selectedCategories().includes('tram'))directions.forEach(d=>{d.mode='road';});renderDirs();};
     renderDirs();
     $("createHome").onclick = () => {
       vib();
@@ -2131,14 +2139,17 @@
       vib();
       if (!await requireStorage()) return;
       let p = $("place").value.trim(), s2 = $("station").value.trim(), g = $("group").value.trim(), hourlyRate = Math.max(0, Number($("hourlyRate")?.value || 0));
-      if (!p || !s2 || !g || directions.length < 2 || directions.some((d) => !d.name.trim() || d.moves.some((m) => !m.trim()))) return alert("Vypl\u0148te \xFAdaje, minim\xE1ln\u011B dva sm\u011Bry a n\xE1zvy v\u0161ech p\u0159idan\xFDch pohyb\u016F.");
+      if (!p || !s2 || !g || directions.length < 1 || directions.some((d) => !d.name.trim() || d.moves.some((m) => !m.trim()))) return alert("Vypl\u0148te \xFAdaje, minim\xE1ln\u011B dva sm\u011Bry a n\xE1zvy v\u0161ech p\u0159idan\xFDch pohyb\u016F.");
+      const categories=selectedCategories();
+      if(trafficStats.validate({categories,directions}))return alert('Vyberte alespoň jednu kategorii a odpovídající silniční / tramvajové směry s jedinečnými názvy.');
+      directions.forEach(d=>d.name=d.name.trim());
       const button = $("createCount");
       if (button.disabled) return;
       const label = button.textContent;
       button.disabled = true;
       button.textContent = "VYTV\xC1\u0158\xCDM S\u010C\xCDT\xC1N\xCD\u2026";
       try {
-        let c = code(), candidate = { code: c, place: p, station: s2, group: g, hourlyRate, directions: JSON.parse(JSON.stringify(directions)), users: [], records: [], created: (/* @__PURE__ */ new Date()).toISOString(), ended: false }, token;
+        let c = code(), candidate = { code: c, place: p, station: s2, group: g, hourlyRate, categories, directions: JSON.parse(JSON.stringify(directions)), users: [], records: [], created: (/* @__PURE__ */ new Date()).toISOString(), ended: false }, token;
         if (IS_HOSTED) {
           const result = await apiResult("/sessions", { method: "POST", body: JSON.stringify(candidate) });
           if (!result.ok) return alert("Vytvo\u0159en\xED spole\u010Dn\xE9ho s\u010D\xEDt\xE1n\xED nebylo potvrzeno. " + apiProblem(result));
@@ -2230,7 +2241,7 @@
       current.directions.forEach((d, i) => {
         let b = document.createElement("button");
         b.className = "btn selectBtn";
-        b.innerHTML = `<b>${esc(d.name)}</b><div class="muted">${d.moves.length ? d.moves.map(esc).join(" \xB7 ") : "Bez rozli\u0161en\xED pohyb\u016F"}</div>`;
+        b.innerHTML = `<b>${d.mode === "tram" ? "Tramvaj · " : ""}${esc(d.name)}</b><div class="muted">${d.moves.length ? d.moves.map(esc).join(" \xB7 ") : "Bez rozli\u0161en\xED pohyb\u016F"}</div>`;
         b.onclick = () => {
           vib();
           selectedDir = i;
@@ -2293,11 +2304,12 @@
         box.className = "card";
         if (m !== null) box.innerHTML = `<div class="movementTitle">${esc(m)}</div>`;
         let g = document.createElement("div");
-        g.className = "grid";
-        cats.forEach((c, ci) => {
+        g.className = d.mode === "tram" ? "grid tramGrid" : "grid";
+        if(d.mode === "tram")box.innerHTML = `<h2>Tramvajové sčítání</h2><p>${esc(d.name)}${m ? " · "+esc(m) : ""}</p>`;
+        activeCats(d).forEach((c, ci) => {
           let b = document.createElement("button");
           b.className = "btn vehicle";
-          b.textContent = c;
+          b.textContent = d.mode === "tram" ? "TRAMVAJ" : c;
           b.onclick = () => add(ci, m);
           g.appendChild(b);
         });
@@ -2316,7 +2328,7 @@
         if (!activeNow) return;
         if (activeNow) { activeNow.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(activeNow)); }
         const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
-        const r = { id: recordId(), time: (/* @__PURE__ */ new Date()).toISOString(), userId: u2.id, user: u2.name, direction: current.directions[selectedDir].name, movement: m || "", category: cats[ci].replace(/^.. /, "") };
+        const r = { id: recordId(), time: (/* @__PURE__ */ new Date()).toISOString(), userId: u2.id, user: u2.name, direction: current.directions[selectedDir].name, movement: m || "", category: activeCats(current.directions[selectedDir])[ci].replace(/^.. /, "") };
         records.push(r);
         current.records.push(r);
         const sessions = (await db());
@@ -2341,7 +2353,7 @@
       let st = $("stats");
       st.innerHTML = "";
       let d = current.directions[selectedDir], moves = d.moves.length ? d.moves : [""];
-      moves.forEach((m) => cats.forEach((c) => {
+      moves.forEach((m) => activeCats(d).forEach((c) => {
         let n = c.replace(/^.. /, ""), v = records.filter((r) => r.movement === m && r.category === n).length;
         if (v) st.innerHTML += `<div class="stat"><span>${m ? esc(m) + " \xB7 " : ""}${esc(n)}</span><b>${v}</b></div>`;
       }));
@@ -2466,8 +2478,10 @@
       let last = colName(Math.max(1, ...rows.map((r) => r.length))) + Math.max(1, rows.length);
       return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:' + last + '"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' + cols + "<sheetData>" + rr + '</sheetData><autoFilter ref="A1:' + last + '"/></worksheet>';
     }
-    async function buildExcel(rs, name) {
-      let dirs = current.directions.map((d) => d.name), summary = [["Sm\u011Br", "Pohyb / odbo\u010Den\xED", "Osobn\xED auta", "N\xE1kladn\xED auta", "Kamiony", "Autobusy", "Celkem"]];
+    async function buildExcel(rs, name, userId) {
+      const trafficStats=window.trafficStats, cats=trafficStats.categories(current).map(c=>c.icon+" "+c.label);
+      rs=trafficStats.validRecords(current,rs);
+      let dirs = current.directions.map((d) => d.name), summary = [["Sm\u011Br", "Pohyb / odbo\u010Den\xED", ...cats.map(c=>c.replace(/^.. /,"")), "Celkem"]];
       for (let d of current.directions) {
         let moves = d.moves.length ? d.moves : [""];
         for (let m of moves) {
@@ -2489,14 +2503,18 @@
       let bins = {};
       for (let r of rs) {
         let d = new Date(r.time), min = Math.floor(d.getMinutes() / 15) * 15, k = [d.toLocaleDateString("cs-CZ"), String(d.getHours()).padStart(2, "0") + ":" + String(min).padStart(2, "0"), r.direction, r.movement || "Bez rozli\u0161en\xED"].join("|");
-        if (bins[k] == null) bins[k] = [0, 0, 0, 0];
+        if (bins[k] == null) bins[k] = cats.map(()=>0);
         let ci = cats.findIndex((c) => c.replace(/^.. /, "") === r.category);
         if (ci >= 0) bins[k][ci]++;
       }
-      let intervals = [["Datum", "Interval od", "Sm\u011Br", "Pohyb / odbo\u010Den\xED", "Osobn\xED auta", "N\xE1kladn\xED auta", "Kamiony", "Autobusy", "Celkem"], ...Object.entries(bins).sort().map(([k, v]) => [...k.split("|"), ...v, v.reduce((a, b) => a + b, 0)])];
+      let intervals = [["Datum", "Interval od", "Sm\u011Br", "Pohyb / odbo\u010Den\xED", ...cats.map(c=>c.replace(/^.. /,"")), "Skutečný počet za 15 min", "Přepočet voz/h (počet × 4)"], ...Object.entries(bins).sort().map(([k, v]) => [...k.split("|"), ...v, v.reduce((a, b) => a + b, 0), v.reduce((a,b)=>a+b,0)*4])];
       let users = [["Jm\xE9no", "Sm\u011Br", "\u010Cas p\u0159ipojen\xED", "\u010Cas ukon\u010Den\xED", "Doba (h)", "Sazba K\u010D/h", "Odm\u011Bna K\u010D", "Zp\u016Fsob ukon\u010Den\xED"], ...current.users.map((u2) => { const w = workSummary(current, u2); return [u2.name, u2.direction, new Date(u2.joined).toLocaleString("cs-CZ"), w.finishedAt ? new Date(w.finishedAt).toLocaleString("cs-CZ") : "Aktivní (průběžně)", w.hours ?? "", w.hourlyRate, w.reward ?? "", w.reasonLabel]; })];
       let sheets = [["Souhrn", summary, [24, 24, 15, 17, 12, 12, 12]], ["Pr\u016Fjezdy", pass, [13, 12, 20, 24, 24, 22, 24, 16, 18, 14]], ["15min intervaly", intervals, [13, 14, 24, 24, 15, 17, 12, 12, 12]], ["Pracovn\xED doba a odm\u011Bny", users, [24, 26, 22, 22, 12, 14, 16, 22]]];
-      let files = { "[Content_Types].xml": '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map((x, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") + "</Types>", "_rels/.rels": '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>', "xl/workbook.xml": '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sheets.map((x, i) => '<sheet name="' + xesc(x[0]) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join("") + "</sheets></workbook>", "xl/_rels/workbook.xml.rels": '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((x, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join("") + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>', "xl/styles.xml": '<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs></styleSheet>' };
+      const stats=trafficStats.summarize(current,rs,userId);
+      const statsRows=[['Směr','Kategorie','Skutečný počet','Skladba (%)','Intenzita (voz/h)','Pozorování (h)']];
+      for(const g of [stats.total,...stats.directions]){statsRows.push([g.label,'CELKEM',g.total,g.total?100:0,g.intensity===null?'':Math.round(g.intensity*100)/100,g.hours]);for(const c of g.composition)statsRows.push([g.label,c.label,c.count,c.percent,g.hours?Math.round(c.count/g.hours*100)/100:'',g.hours]);}
+      sheets.push(['Intenzita a skladba',statsRows,[26,24,20,18,24,24]],['Metodika',[['Ukazatel','Výpočet'],['Intenzita','Počet / sjednocená doba účasti sčítačů (souběžné časy se nesčítají). Pro směr pouze jeho sčítači.'],['15min interval','Skutečný počet × 4; i neúplný interval je přepočet na pevné 15min okno, nikoli dokončené měření.'],['Skladba','Aktivní kategorie; zaokrouhlení na 0,1 % se součtem 100 % u neprázdných dat.'],['Čas serveru',current.serverNow||'Není dostupný']],[24,100]]);
+      let files = { "[Content_Types].xml": '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map((x, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") + "</Types>", "_rels/.rels": '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>', "xl/workbook.xml": '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sheets.map((x, i) => '<sheet name="' + xesc(x[0]) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join("") + "</sheets></workbook>", "xl/_rels/workbook.xml.rels": '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((x, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join("") + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>', "xl/styles.xml": '<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Roboto"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Roboto"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF002B4F"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs></styleSheet>' };
       sheets.forEach((x, i) => files["xl/worksheets/sheet" + (i + 1) + ".xml"] = sheetXml(x[1], x[2]));
       await platform2.exportFile(zipStore(files), name);
     }
@@ -2504,7 +2522,7 @@
       vib();
       let u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "{}");
       await syncCurrent();
-      await buildExcel(records, "scitani-" + safeName(current.station) + "-" + safeName(u2.name) + ".xlsx");
+      await buildExcel(records, "scitani-" + safeName(current.station) + "-" + safeName(u2.name) + ".xlsx", u2.id);
     };
     async function renderAdminBase() {
       current = (await db())[current.code] || current;
@@ -2558,20 +2576,13 @@
       await renderAdminFinal();
       show("finishAdmin");
     };
-    function catCounts(rs) {
-      return cats.map((c) => {
-        let n = c.replace(/^.. /, "");
-        return [n, rs.filter((r) => r.category === n).length];
-      });
-    }
-    function summaryHtml(rs, personal = false) {
-      let rows = catCounts(rs), total = rs.length, dirs = {};
-      rs.forEach((r) => {
-        let k = r.direction + (r.movement ? " \xB7 " + r.movement : "");
-        dirs[k] = (dirs[k] || 0) + 1;
-      });
-      let u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "{}");
-      return `<div class="summaryBox"><div class="adminRow"><b>M\xEDsto</b><div>${esc(current.place)}</div></div><div class="adminRow"><b>Stanovi\u0161t\u011B / skupina</b><div>${esc(current.station)} \xB7 ${esc(current.group)}</div></div>${personal ? `<div class="adminRow"><b>S\u010D\xEDta\u010D</b><div>${esc(u2.name || "")}</div></div>` : ""}<h3>${personal ? "V\xE1\u0161 v\xFDsledek" : "Celkov\xFD v\xFDsledek"}</h3>${rows.map(([n, v]) => `<div class="stat"><span>${esc(n)}</span><b>${v}</b></div>`).join("")}<div class="summaryTotal">Celkem: ${total} vozidel</div><h3>Sm\u011Bry a pohyby</h3>${Object.keys(dirs).length ? Object.entries(dirs).map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><b>${v}</b></div>`).join("") : '<span class="muted">Bez zaznamenan\xFDch vozidel.</span>'}</div>`;
+    function summaryHtml(rs, personal = false, snapshot = current) {
+      const identity=JSON.parse(sessionStorage.getItem('trafficUser')||'{}');
+      const stats=trafficStats.summarize(snapshot,rs,personal?identity.id:undefined);
+      const fmt=n=>n===null?'Čeká na potvrzenou dobu':n.toLocaleString('cs-CZ',{maximumFractionDigits:1});
+      const movements=new Map();for(const r of trafficStats.validRecords(snapshot,rs)){if(r.movement){const key=r.direction+' · '+r.movement;movements.set(key,(movements.get(key)||0)+1);}}
+      const movementHtml=movements.size?'<h3>Pohyby / odbočení</h3>'+[...movements].map(([name,n])=>'<div class="stat"><span>'+esc(name)+'</span><b>'+n+'</b></div>').join(''):'';
+      return '<div class="summaryBox"><p>'+esc(snapshot.place)+' · '+esc(snapshot.station)+' · '+esc(snapshot.group)+'</p>'+ (personal?'<p>Sčítač: '+esc(identity.name||'')+'</p>':'')+'<h3>'+ (personal?'Váš výsledek':'Celkový výsledek')+'</h3>'+[stats.total,...stats.directions].map(g=>'<section class="trafficSummary"><h4>'+esc(g.label)+'</h4><p><b>'+g.total+' vozidel</b> · '+fmt(g.intensity)+' voz/h</p>'+g.composition.map(c=>'<div class="stat"><span>'+esc(c.label)+'</span><b>'+c.count+' · '+fmt(c.percent)+' %</b></div>').join('')+'</section>').join('')+movementHtml+'<p class="muted">Intenzita = počet / doba pozorování. Souběžná účast více zařízení se nesčítá; mezery bez sčítačů se nezahrnují. Skladba prázdného vzorku je 0 %.</p></div>';
     }
     function renderUserFinal() {
       const identity = JSON.parse(sessionStorage.getItem("trafficUser") || "{}");
@@ -2783,8 +2794,20 @@
     }, busy() {
       return !$("count").classList.contains("hidden");
     } });
+    let dashboardBusy=false;
+    async function refreshTrafficDashboard(){
+      if(dashboardBusy||!current||$("admin").classList.contains('hidden'))return;
+      dashboardBusy=true;const code=current.code;
+      try{const r=await apiResult('/sessions/'+code+'/manage',{headers:{'X-Admin-Token':await adminToken(code)}});
+        if(current.code!==code)return;
+        if(r.ok)$("trafficDashboard").innerHTML='<h3>Živé výsledky ze serveru</h3><p class="muted">Aktualizace: '+esc(new Date(r.data.serverNow).toLocaleTimeString('cs-CZ'))+'</p>'+summaryHtml(r.data.records,false,r.data);
+        else $("trafficDashboard").innerHTML='<p class="muted">Živé výsledky nejsou dostupné. Obnovte připojení k serveru.</p>';
+      }finally{dashboardBusy=false;}
+    }
+    setInterval(()=>refreshTrafficDashboard().catch(console.error),10000);
     async function renderAdmin() {
       await renderAdminBase();
+      setTimeout(()=>refreshTrafficDashboard().catch(console.error),0);
       $("adminCount").classList.toggle("hidden", !!current.ended);
       $("adminEnd").classList.toggle("hidden", !!current.ended);
       let form = $("metadataForm");
@@ -2813,6 +2836,7 @@
     window.SCITANI_API_BASE = apiBase;
     const status = document.createElement("p");
     status.className = "muted";
+    status.id = "connectionStatus";
     status.setAttribute("role", "status");
     document.getElementById("home").append(status);
     let verifiedUntil = 0, checking;
@@ -2824,12 +2848,12 @@
           const r = p.native ? await CapacitorHttp.request({ url: apiBase + "/health", method: "GET", responseType: "json", connectTimeout: 8e3, readTimeout: 8e3, disableRedirects: true }) : await fetch(apiBase + "/health", { cache: "no-store" });
           const d = p.native ? (typeof r.data === "string" ? JSON.parse(r.data) : r.data) : await r.json();
           const statusCode = p.native ? r.status : r.status;
-          if (statusCode !== 200 || d.app !== "scitani-dopravy" || d.version !== "1.4.0") {
+          if (statusCode !== 200 || d.app !== "scitani-dopravy" || d.version !== "1.5.0") {
             status.textContent = "Nov\xE1 verze serveru je\u0161t\u011B nen\xED spu\u0161t\u011Bn\xE1. Pou\u017Eijte zat\xEDm testovac\xED aplikaci.";
             return false;
           }
           verifiedUntil = Date.now() + 6e4;
-          status.textContent = "P\u0159ipojeno k serveru 1.4.0 \xB7 " + apiBase;
+          status.textContent = "Připojení ke společnému sčítání je ověřeno.";
           return true;
         } catch (e) {
           status.textContent = "Server nen\xED dostupn\xFD. Ulo\u017Een\xE9 z\xE1znamy z\u016Fst\xE1vaj\xED v za\u0159\xEDzen\xED.";
@@ -2851,6 +2875,17 @@
     window.trafficNativeRequest = p.request;
     window.trafficArchiveExport = p.exportFile.bind(p);
     await initApp(p);
+    if (!p.native && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').then(reg => {
+        reg.addEventListener('updatefound', () => {
+          const worker=reg.installing;
+          worker?.addEventListener('statechange',()=>{
+            if(worker.state==='installed' && navigator.serviceWorker.controller)document.getElementById('updateBox').classList.remove('hidden');
+          });
+        });
+        document.getElementById('updateNow').onclick=()=>location.reload();
+      }).catch(e=>console.warn('PWA cache unavailable:',e));
+    }
     document.getElementById("loading").hidden = true;
     document.getElementById("appContent").hidden = false;
     if (p.storage.recovered) report(Error("Byla obnovena z\xE1loha m\xEDstn\xEDch dat. Ov\u011B\u0159te posledn\xED pr\u016Fjezdy."));
