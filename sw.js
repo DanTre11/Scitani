@@ -1,5 +1,5 @@
-const CACHE='traffic-v140-release-20261001';
-const SHELL=['/','/index.html','/manifest.json','/icon-192.png','/icon-512.png'];
+const CACHE='traffic-v140-work-summary-20261001';
+const SHELL=['/','/index.html','/app.bundle.js','/work-summary.js','/modern.css','/manifest.json','/icon-192.png','/icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting()});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{

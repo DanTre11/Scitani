@@ -99,7 +99,7 @@ var Accounts = class {
 };
 
 // src/worker.js
-var FILES = /* @__PURE__ */ new Set(["/", "/index.html", "/app.bundle.js", "/app.js", "/accounts.js", "/boot.js", "/modern.css", "/sheet-gesture.js", "/sw.js", "/manifest.json", "/icon-192.png", "/icon-512.png"]);
+var FILES = /* @__PURE__ */ new Set(["/", "/index.html", "/app.bundle.js", "/work-summary.js", "/app.js", "/accounts.js", "/boot.js", "/modern.css", "/sheet-gesture.js", "/sw.js", "/manifest.json", "/icon-192.png", "/icon-512.png"]);
 var json = /* @__PURE__ */ __name((x, status = 200, extra = {}) => Response.json(x, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin", "X-Frame-Options": "DENY", ...extra } }), "json");
 async function body(req) {
   const reader = req.body?.getReader();
@@ -136,7 +136,24 @@ async function getSession(db, c) {
   return s;
 }
 __name(getSession, "getSession");
+// Legacy records remain readable; all new activity is timestamped by the server.
+const activitySql = "COALESCE(json_extract(users.data,'$.lastActivity'),(SELECT MAX(time) FROM records WHERE code=users.code AND user_id=users.id),json_extract(users.data,'$.joined'),users.last_seen)";
+const deadlineSql = `strftime('%Y-%m-%dT%H:%M:%fZ',${activitySql},'+20 minutes')`;
+async function settleSession(db, c, now = new Date().toISOString()) {
+  // D1 workers can sleep between requests. Persist the deadline, never the later read time.
+  await db.batch([
+    q(db, `UPDATE users SET finished_at=${deadlineSql},data=json_set(data,'$.finishReason','inactivity')
+      WHERE code=? AND finished_at IS NULL AND ${deadlineSql}<=?
+      AND EXISTS(SELECT 1 FROM sessions s WHERE s.code=users.code AND (s.ended=0 OR ${deadlineSql}<=s.ended_at))`, c, now),
+    q(db, `UPDATE users SET finished_at=(SELECT ended_at FROM sessions WHERE code=?),data=json_set(data,'$.finishReason','session-ended')
+      WHERE code=? AND finished_at IS NULL AND EXISTS(SELECT 1 FROM sessions s WHERE s.code=users.code AND s.ended=1 AND s.ended_at IS NOT NULL)`, c, c)
+  ]);
+}
+function publicUser(u) {
+  return {...JSON.parse(u.data),finishedAt:u.finished_at || null,lastSeen:u.last_seen};
+}
 async function sessionView(db, c, paged = true) {
+  await settleSession(db, c);
   const s = await getSession(db, c);
   const users = await q(db, "SELECT data,finished_at,last_seen FROM users WHERE code=? ORDER BY id", c).all();
   let records = [];
@@ -144,7 +161,7 @@ async function sessionView(db, c, paged = true) {
     records = (await q(db, "SELECT data FROM records WHERE code=? ORDER BY id LIMIT 5001", c).all()).results;
     if (records.length > 5e3) fail(413, "use_paged_records");
   }
-  return { ...JSON.parse(s.data), ownerId: s.owner_id, ended: !!s.ended, endedAt: s.ended_at, users: users.results.map((u) => ({ ...JSON.parse(u.data), finishedAt: u.finished_at, lastSeen: u.last_seen })), records: records.map((r) => JSON.parse(r.data)), ...paged ? { pagedRecords: true } : {} };
+  return { ...JSON.parse(s.data), serverNow: new Date().toISOString(), ownerId: s.owner_id, ended: !!s.ended, endedAt: s.ended_at, users: users.results.map(publicUser), records: records.map((r) => JSON.parse(r.data)), ...paged ? { pagedRecords: true } : {} };
 }
 __name(sessionView, "sessionView");
 function manage(a, s, req) {
@@ -181,7 +198,7 @@ async function handle(req, env) {
   const url = new URL(req.url), p = url.pathname.split("/").filter(Boolean), db = env.DB.withSession ? env.DB.withSession("first-primary") : env.DB, accounts = new Accounts(db);
   if (url.pathname === "/health" && req.method === "GET") {
     await q(db, "SELECT 1").first();
-    return json({ ok: true, app: "scitani-dopravy", version: "1.4.0", environment: "production", storage: "cloudflare-d1" });
+    return json({ ok: true, app: "scitani-dopravy", version: "1.4.0", environment: "production", storage: "cloudflare-d1", build: "v1.4.0-payroll-20261002" });
   }
   if (p[0] !== "api") {
     if (!["GET", "HEAD"].includes(req.method) || !FILES.has(url.pathname)) fail(404, "not_found");
@@ -248,13 +265,14 @@ async function handle(req, env) {
     const s2 = sessionInput(await body(req)), adminToken = token(), owner = a && ["organizer", "admin"].includes(a.role) ? a.id : null;
     for (let i = 0; i < 8; i++) {
       const result = await q(db, "INSERT INTO sessions(code,data,owner_id,admin_token) VALUES(?,?,?,?) ON CONFLICT(code) DO NOTHING", s2.code, JSON.stringify(s2), owner, adminToken).run();
-      if (result.meta.changes) return json({ session: { ...s2, ownerId: owner, users: [], records: [], ended: false, endedAt: null }, adminToken: owner ? "account" : adminToken }, 201);
+      if (result.meta.changes) return json({ session: { ...s2, serverNow: new Date().toISOString(), ownerId: owner, users: [], records: [], ended: false, endedAt: null }, adminToken: owner ? "account" : adminToken }, 201);
       s2.code = token().slice(0, 6).toUpperCase();
     }
     fail(503, "code_unavailable");
   }
   const c = (p[2] || "").toUpperCase();
   if (!/^[A-Z0-9]{6}$/.test(c)) fail(404, "not_found");
+  await settleSession(db, c);
   const s = await getSession(db, c), data = JSON.parse(s.data);
   if (req.method === "GET" && p.length === 3) return json(await sessionView(db, c, url.searchParams.get("summary") === "1"));
   if (p[3] === "manage" && p.length === 4) {
@@ -287,10 +305,10 @@ async function handle(req, env) {
     if (!data.directions.some((d) => d.name === x.direction)) fail(400, "invalid_direction");
     const t = req.headers.get("x-participant-token") || "";
     if (!/^[a-f0-9]{64}$/.test(t)) fail(400, "participant_token_required");
-    const existing = await q(db, "SELECT token_hash FROM users WHERE code=? AND id=?", c, x.id).first();
+    const existing = await q(db, "SELECT * FROM users WHERE code=? AND id=?", c, x.id).first();
     if (existing) {
       if (hash(t) !== existing.token_hash) fail(403, "participant_required");
-      return json({ ok: true });
+      return json(publicUser(existing));
     }
     if (s.ended) fail(409, "ended");
     const now = (/* @__PURE__ */ new Date()).toISOString(), u = { id: x.id, name: x.name, direction: x.direction, joined: now, lastActivity: now };
@@ -299,12 +317,14 @@ async function handle(req, env) {
       await member(db, req, c, x.id);
       if (s.ended) fail(409, "ended");
     }
-    return json({ ok: true }, 201);
+    return json(publicUser(await member(db, req, c, x.id)), 201);
   }
   if (req.method === "POST" && p[3] === "users" && p.length === 6 && ["heartbeat", "presence", "finish"].includes(p[5])) {
     let u = await member(db, req, c, p[4]);
-    const x = await body(req), now = new Date().toISOString();
-    const activitySql = "COALESCE(json_extract(data,'$.lastActivity'),(SELECT MAX(time) FROM records WHERE code=users.code AND user_id=users.id),json_extract(data,'$.joined'),last_seen)";
+    await body(req);
+    const now = new Date().toISOString();
+    await settleSession(db, c, now);
+    u = await member(db, req, c, p[4]);
     if (p[5] === "presence") {
       if (s.ended || u.finished_at) fail(409, "finished");
       const result = await q(db, "UPDATE users SET last_seen=?,data=json_set(data,'$.lastActivity',?,'$.presenceConfirmedAt',?) WHERE code=? AND id=? AND finished_at IS NULL AND EXISTS(SELECT 1 FROM sessions WHERE code=? AND ended=0)", now, now, now, c, u.id, c).run();
@@ -312,19 +332,19 @@ async function handle(req, env) {
       return json({ok:true,lastActivity:now});
     }
     if (p[5] === "finish") {
-      const reason = x.reason === "inactivity" ? "inactivity" : "manual";
-      await q(db, "UPDATE users SET last_seen=?,data=CASE WHEN finished_at IS NULL THEN json_set(data,'$.finishReason',?) ELSE data END,finished_at=COALESCE(finished_at,?) WHERE code=? AND id=?", now, reason, now, c, u.id).run();
+      await q(db, "UPDATE users SET last_seen=CASE WHEN finished_at IS NULL THEN ? ELSE last_seen END,data=CASE WHEN finished_at IS NULL THEN json_set(data,'$.finishReason','manual') ELSE data END,finished_at=COALESCE(finished_at,?) WHERE code=? AND id=?", now, now, c, u.id).run();
     } else {
-      const cutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
-      await q(db, `UPDATE users SET finished_at=?,data=json_set(data,'$.finishReason','inactivity') WHERE code=? AND id=? AND finished_at IS NULL AND ${activitySql}<=? AND EXISTS(SELECT 1 FROM sessions WHERE code=? AND ended=0)`, now, c, u.id, cutoff, c).run();
       await q(db, "UPDATE users SET last_seen=? WHERE code=? AND id=?", now, c, u.id).run();
     }
     u = await q(db, `SELECT *,${activitySql} AS activity_at FROM users WHERE code=? AND id=?`, c, u.id).first();
     const idleMs = Math.max(0, Date.now() - Date.parse(u.activity_at || now));
-    return json({ok:true,ended:!!s.ended,autoFinished:!!u.finished_at && JSON.parse(u.data).finishReason === "inactivity",finishedAt:u.finished_at,idleMs,presenceDue:!u.finished_at && idleMs >= 10 * 60 * 1000});
+    const fresh = await getSession(db, c);
+    return json({ok:true,ended:!!fresh.ended,autoFinished:!!u.finished_at && JSON.parse(u.data).finishReason === "inactivity",finishedAt:u.finished_at,finishReason:JSON.parse(u.data).finishReason || null,user:publicUser(u),idleMs,presenceDue:!u.finished_at && idleMs >= 10 * 60 * 1000});
   }
   if (req.method === "POST" && p[3] === "records" && p.length === 4) {
-    const x = await body(req), u = await member(db, req, c, x.userId), ud = JSON.parse(u.data);
+    const x = await body(req);
+    await settleSession(db, c);
+    const u = await member(db, req, c, x.userId), ud = JSON.parse(u.data);
     text(x.id, "id", 200);
     const prior = await q(db, "SELECT user_id FROM records WHERE code=? AND id=?", c, x.id).first();
     if (prior) {
@@ -337,7 +357,8 @@ async function handle(req, env) {
     const dir = data.directions.find((d) => d.name === ud.direction);
     if (typeof x.movement !== "string" || (dir.moves.length ? !dir.moves.includes(x.movement) : x.movement !== "")) fail(400, "invalid_movement");
     const time = new Date(t).toISOString(), r = { id: x.id, time, userId: u.id, user: ud.name, direction: ud.direction, movement: x.movement, category: x.category, station: data.station, group: data.group };
-    const results = await db.batch([q(db, `INSERT INTO records(code,id,data,time,user_id) SELECT s.code,?,?,?,u.id FROM sessions s JOIN users u ON u.code=s.code WHERE s.code=? AND u.id=? AND (s.ended=0 OR ?<=s.ended_at) AND (u.finished_at IS NULL OR ?<=u.finished_at) ON CONFLICT(code,id) DO NOTHING`, x.id, JSON.stringify(r), time, c, u.id, time, time), q(db, "UPDATE users SET last_seen=?,data=json_set(data,'$.lastActivity',MAX(COALESCE(json_extract(data,'$.lastActivity'),json_extract(data,'$.joined'),?),?)) WHERE code=? AND id=? AND finished_at IS NULL AND EXISTS(SELECT 1 FROM records WHERE code=? AND id=? AND user_id=?)", new Date().toISOString(), time, time, c, u.id, c, x.id, u.id)]);
+    const receivedAt = new Date().toISOString();
+    const results = await db.batch([q(db, `INSERT INTO records(code,id,data,time,user_id) SELECT s.code,?,?,?,u.id FROM sessions s JOIN users u ON u.code=s.code WHERE s.code=? AND u.id=? AND (s.ended=0 OR ?<=s.ended_at) AND (u.finished_at IS NULL OR ?<=u.finished_at) ON CONFLICT(code,id) DO NOTHING`, x.id, JSON.stringify(r), time, c, u.id, time, time), q(db, "UPDATE users SET last_seen=?,data=json_set(data,'$.lastActivity',?) WHERE code=? AND id=? AND finished_at IS NULL AND EXISTS(SELECT 1 FROM records WHERE code=? AND id=? AND user_id=?)", receivedAt, receivedAt, c, u.id, c, x.id, u.id)]);
     if (!results[0].meta.changes) {
       const duplicate = await q(db, "SELECT user_id FROM records WHERE code=? AND id=?", c, x.id).first();
       if (duplicate?.user_id === u.id) return json({ ok: true });
@@ -363,6 +384,7 @@ async function handle(req, env) {
     manage(a, s, req);
     await body(req);
     const now = new Date().toISOString();
+    await settleSession(db, c, now);
     await db.batch([
       q(db, "UPDATE sessions SET ended=1,ended_at=COALESCE(ended_at,?) WHERE code=?", now, c),
       q(db, "UPDATE users SET finished_at=(SELECT ended_at FROM sessions WHERE code=?),data=json_set(data,'$.finishReason','session-ended') WHERE code=? AND finished_at IS NULL", c, c)

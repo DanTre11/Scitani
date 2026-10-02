@@ -15,7 +15,10 @@ assert((await call('/')).body.includes('app.bundle.js'));assert((await call('/ap
 const created=await call('/api/sessions','POST',{code:'TEST14',place:'Praha',station:'A',group:'Test',hourlyRate:150,directions:[{name:'A',moves:[]},{name:'B',moves:[]}]});assert.equal(created.status,201);assert.equal(created.body.session.hourlyRate,150);
 const admin={'X-Admin-Token':created.body.adminToken},token={'X-Participant-Token':'a'.repeat(64)};
 async function join(id){assert.equal((await call('/api/sessions/TEST14/users','POST',{id,name:id,direction:'A'},token)).status,201)}
-await join('one');const base='/api/sessions/TEST14/users/one/';
+await join('one');
+const joined=(await call('/api/sessions/TEST14/users','POST',{id:'one',name:'changed',direction:'A',joined:'2099-01-01'},token)).body;
+assert.equal(joined.name,'one');assert(Number.isFinite(Date.parse(joined.joined)));assert(!joined.joined.startsWith('2099'));
+const base='/api/sessions/TEST14/users/one/';
 function age(minutes){sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?) WHERE id='one'").run(new Date(Date.now()-minutes*60000).toISOString())}
 age(9);assert.equal((await call(base+'heartbeat','POST',{},token)).body.presenceDue,false);
 age(10.1);assert.equal((await call(base+'heartbeat','POST',{},token)).body.presenceDue,true);
@@ -38,4 +41,26 @@ assert.equal((await call('/api/sessions/TEST14/users/three/heartbeat','POST',{})
 sql.prepare("UPDATE sessions SET ended=0,ended_at=NULL WHERE code='TEST14'").run();
 await join('legacy');sql.prepare("UPDATE users SET data=json_remove(data,'$.lastActivity') WHERE id='legacy'").run();
 assert.equal((await call('/api/sessions/TEST14/users/legacy/heartbeat','POST',{},token)).body.autoFinished,false);
+// Reconcile persisted sessions even when no participant heartbeat arrives.
+await join('silent');
+const activity='2026-01-01T10:00:00.123Z', deadline='2026-01-01T10:20:00.123Z';
+sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?) WHERE id='silent'").run(activity);
+const silent=(await call('/api/sessions/TEST14')).body.users.find(u=>u.id==='silent');
+assert.equal(silent.finishedAt,deadline);assert.equal(silent.finishReason,'inactivity');
+assert.equal((await call('/api/sessions/TEST14/users/silent/finish','POST',{},token)).body.user.finishedAt,deadline);
+// An older stored session end wins only if it preceded the inactivity deadline.
+await join('before');await join('after');
+sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?) WHERE id IN ('before','after')").run(activity);
+sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?) WHERE id='after'").run('2026-01-01T10:15:00.123Z');
+sql.prepare("UPDATE sessions SET ended=1,ended_at=? WHERE code='TEST14'").run('2026-01-01T10:25:00.123Z');
+const ended=(await call('/api/sessions/TEST14')).body;
+assert.equal(ended.users.find(u=>u.id==='before').finishedAt,deadline);
+assert.equal(ended.users.find(u=>u.id==='before').finishReason,'inactivity');
+assert.equal(ended.users.find(u=>u.id==='after').finishedAt,ended.endedAt);
+assert.equal(ended.users.find(u=>u.id==='after').finishReason,'session-ended');
+assert(Number.isFinite(Date.parse(ended.serverNow)));
+await call('/api/sessions/TEST14/end','POST',{},admin);
+assert.equal((await call('/api/sessions/TEST14')).body.endedAt,ended.endedAt);
+assert.equal((await call('/health')).body.build,'v1.4.0-payroll-20261002');
+assert((await call('/work-summary.js')).body.includes('trafficWorkSummary'));
 console.log('PASS: embedded interface, D1 SQLite queries, 10/20 minute limits, presence and count reset, repeated inactivity detection, all finish reasons, hourly rate, legacy rows and authorization.');

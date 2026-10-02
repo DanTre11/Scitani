@@ -2257,6 +2257,7 @@
       await storage.setItem("trafficParticipant:" + current.code + ":" + uid, secret);
       const result = await apiResult("/sessions/" + current.code + "/users", { method: "POST", headers: { "X-Participant-Token": secret }, body: JSON.stringify(u2) });
       if (!result.ok) return alert("Pro zah\xE1jen\xED se nejprve p\u0159ipojte k internetu. " + apiProblem(result));
+      Object.assign(u2, result.data);
       current.users.push(u2);
       await persist();
       sessionStorage.setItem("trafficUser", JSON.stringify({ id: uid, name: n, code: current.code }));
@@ -2267,6 +2268,7 @@
       finishArmed = false;
       $("presenceBar")?.classList.add("hidden");
       $("finish").textContent = "Ukončit moje sčítání";
+      await storage.removeItem("trafficFinal");
       await storage.setItem("trafficActive", JSON.stringify({ id: uid, name: n, code: current.code, started, direction: u2.direction, lastActivityAt }));
       $("placeShow").textContent = current.place;
       $("meta").textContent = [current.station, current.group, n, "K\xF3d " + current.code].join(" \xB7 ");
@@ -2311,6 +2313,7 @@
       $("presenceBar")?.classList.add("hidden");
       await mutateLocal(async () => {
         const activeNow = JSON.parse(await storage.getItem("trafficActive") || "null");
+        if (!activeNow) return;
         if (activeNow) { activeNow.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(activeNow)); }
         const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
         const r = { id: recordId(), time: (/* @__PURE__ */ new Date()).toISOString(), userId: u2.id, user: u2.name, direction: current.directions[selectedDir].name, movement: m || "", category: cats[ci].replace(/^.. /, "") };
@@ -2370,6 +2373,7 @@
       await mutateLocal(async () => {
         await storage.removeItem("trafficActive");
         const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
+        await storage.setItem("trafficFinal", JSON.stringify(u2));
         const pending = JSON.parse(await storage.getItem("trafficFinishes") || "[]");
         if (!pending.some((x) => x.code === current.code && x.id === u2.id)) pending.push({ code: current.code, id: u2.id, reason });
         await storage.setItem("trafficFinishes", JSON.stringify(pending));
@@ -2378,7 +2382,7 @@
       $("sheet").classList.remove("open");
       isCreator = isCreator || (await storage.getItem("trafficRole:" + current.code)) === "admin" && !!(await adminToken(current.code));
       $("presenceBar")?.classList.add("hidden");
-      renderUserFinal(reason);
+      renderUserFinal();
       $("creatorFinishActions").classList.toggle("hidden", !isCreator);
       show("finishUser");
       await flushQueue();
@@ -2401,6 +2405,8 @@
       if (confirm("Opravdu ukončit vaše sčítání?")) await finishMyCounting("manual");
       else btn.textContent = "Ukončit moje sčítání";
     };
+    const workSummary = window.trafficWorkSummary;
+    const decimal = (value) => value === null ? "Čeká na server" : value.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     function safeName(s2) {
       return String(s2 || "uzivatel").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, "-");
     }
@@ -2488,7 +2494,7 @@
         if (ci >= 0) bins[k][ci]++;
       }
       let intervals = [["Datum", "Interval od", "Sm\u011Br", "Pohyb / odbo\u010Den\xED", "Osobn\xED auta", "N\xE1kladn\xED auta", "Kamiony", "Autobusy", "Celkem"], ...Object.entries(bins).sort().map(([k, v]) => [...k.split("|"), ...v, v.reduce((a, b) => a + b, 0)])];
-      let users = [["Jm\xE9no", "Sm\u011Br", "\u010Cas p\u0159ipojen\xED", "\u010Cas ukon\u010Den\xED", "Doba (h)", "Sazba K\u010D/h", "Odm\u011Bna K\u010D", "Zp\u016Fsob ukon\u010Den\xED"], ...current.users.map((u2) => { const end = u2.finishedAt ? Date.parse(u2.finishedAt) : Date.now(); const hours = Math.max(0, end - Date.parse(u2.joined)) / 36e5; const rate = Number(current.hourlyRate) || 0; return [u2.name, u2.direction, new Date(u2.joined).toLocaleString("cs-CZ"), u2.finishedAt ? new Date(u2.finishedAt).toLocaleString("cs-CZ") : "Aktivn\xED", Math.round(hours * 100) / 100, rate, Math.round(hours * rate * 100) / 100, u2.finishReason || ""]; })];
+      let users = [["Jm\xE9no", "Sm\u011Br", "\u010Cas p\u0159ipojen\xED", "\u010Cas ukon\u010Den\xED", "Doba (h)", "Sazba K\u010D/h", "Odm\u011Bna K\u010D", "Zp\u016Fsob ukon\u010Den\xED"], ...current.users.map((u2) => { const w = workSummary(current, u2); return [u2.name, u2.direction, new Date(u2.joined).toLocaleString("cs-CZ"), w.finishedAt ? new Date(w.finishedAt).toLocaleString("cs-CZ") : "Aktivní (průběžně)", w.hours ?? "", w.hourlyRate, w.reward ?? "", w.reasonLabel]; })];
       let sheets = [["Souhrn", summary, [24, 24, 15, 17, 12, 12, 12]], ["Pr\u016Fjezdy", pass, [13, 12, 20, 24, 24, 22, 24, 16, 18, 14]], ["15min intervaly", intervals, [13, 14, 24, 24, 15, 17, 12, 12, 12]], ["Pracovn\xED doba a odm\u011Bny", users, [24, 26, 22, 22, 12, 14, 16, 22]]];
       let files = { "[Content_Types].xml": '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map((x, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") + "</Types>", "_rels/.rels": '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>', "xl/workbook.xml": '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sheets.map((x, i) => '<sheet name="' + xesc(x[0]) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join("") + "</sheets></workbook>", "xl/_rels/workbook.xml.rels": '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + sheets.map((x, i) => '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join("") + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>', "xl/styles.xml": '<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs></styleSheet>' };
       sheets.forEach((x, i) => files["xl/worksheets/sheet" + (i + 1) + ".xml"] = sheetXml(x[1], x[2]));
@@ -2497,6 +2503,7 @@
     $("export").onclick = async () => {
       vib();
       let u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "{}");
+      await syncCurrent();
       await buildExcel(records, "scitani-" + safeName(current.station) + "-" + safeName(u2.name) + ".xlsx");
     };
     async function renderAdminBase() {
@@ -2504,7 +2511,10 @@
       $("adminCode").textContent = current.code;
       $("adminMeta").innerHTML = `<b>${esc(current.place)}</b><div class="muted">${esc(current.station)} \xB7 ${esc(current.group)} \xB7 ${current.records.length} spole\u010Dn\xFDch z\xE1znam\u016F</div>`;
       $("adminDirs").innerHTML = current.directions.map((d) => `<div class="adminRow"><b>${esc(d.name)}</b><div>${d.moves.length ? d.moves.map((m) => `<span class="pill">${esc(m)}</span>`).join("") : '<span class="muted">Bez rozli\u0161en\xED pohyb\u016F</span>'}</div></div>`).join("");
-      $("adminUsers").innerHTML = current.users.length ? current.users.map((u2) => `<div class="adminRow"><b>${esc(u2.name)}</b><div class="muted">${esc(u2.direction)} \xB7 p\u0159ipojen ${new Date(u2.joined).toLocaleTimeString("cs-CZ")} \xB7 ${u2.finishedAt ? "Dokon\u010Deno" : Date.now() - Date.parse(u2.lastSeen || u2.joined) < 12e4 ? "Aktivn\xED" : "Bez spojen\xED"} \xB7 ${((Math.max(0,(u2.finishedAt?Date.parse(u2.finishedAt):Date.now())-Date.parse(u2.joined))/36e5)).toFixed(2)} h \xB7 ${Math.round((Math.max(0,(u2.finishedAt?Date.parse(u2.finishedAt):Date.now())-Date.parse(u2.joined))/36e5)*(Number(current.hourlyRate)||0)*100)/100} K\u010D</div></div>`).join("") : '<span class="muted">Zat\xEDm se nikdo nep\u0159ipojil.</span>';
+      $("adminUsers").innerHTML = current.users.length ? current.users.map((u2) => {
+        const w = workSummary(current, u2);
+        return `<div class="adminRow"><b>${esc(u2.name)}</b><div class="muted">${esc(u2.direction)} · ${w.finishedAt ? esc(w.reasonLabel) : Date.parse(current.serverNow) - Date.parse(u2.lastSeen || u2.joined) < 12e4 ? "Aktivní (průběžně)" : "Bez spojení (průběžně)"} · ${decimal(w.hours)} h · ${decimal(w.hourlyRate)} Kč/h · ${decimal(w.reward)} Kč</div></div>`;
+      }).join("") : '<span class="muted">Zatím se nikdo nepřipojil.</span>';
     }
     ;
     $("adminRefresh").onclick = async () => {
@@ -2538,14 +2548,8 @@
       await storage.flush();
       await flushQueue();
       if (JSON.parse(await storage.getItem("trafficQueue") || "[]").some((x) => x.code === current.code)) return alert("P\u0159ed ukon\u010Den\xEDm nejprve ode\u0161lete \u010Dekaj\xEDc\xED z\xE1znamy tohoto za\u0159\xEDzen\xED. Ov\u011B\u0159te p\u0159ipojen\xED.");
-      current.ended = true;
-      current.endedAt = (/* @__PURE__ */ new Date()).toISOString();
-      await persist();
-      let ended = IS_HOSTED ? await api("/sessions/" + current.code + "/end", { method: "POST", headers: { "X-Admin-Token": (await adminToken(current.code)) }, body: JSON.stringify({ endedAt: current.endedAt }) }) : current;
+      let ended = await api("/sessions/" + current.code + "/end", { method: "POST", headers: { "X-Admin-Token": await adminToken(current.code) }, body: "{}" });
       if (!ended) {
-        current.ended = false;
-        current.endedAt = null;
-        await persist();
         return alert("S\u010D\xEDt\xE1n\xED se nepoda\u0159ilo ukon\u010Dit. Ov\u011B\u0159te p\u0159ipojen\xED a opr\xE1vn\u011Bn\xED spr\xE1vce.");
       }
       current = ended;
@@ -2569,15 +2573,51 @@
       let u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "{}");
       return `<div class="summaryBox"><div class="adminRow"><b>M\xEDsto</b><div>${esc(current.place)}</div></div><div class="adminRow"><b>Stanovi\u0161t\u011B / skupina</b><div>${esc(current.station)} \xB7 ${esc(current.group)}</div></div>${personal ? `<div class="adminRow"><b>S\u010D\xEDta\u010D</b><div>${esc(u2.name || "")}</div></div>` : ""}<h3>${personal ? "V\xE1\u0161 v\xFDsledek" : "Celkov\xFD v\xFDsledek"}</h3>${rows.map(([n, v]) => `<div class="stat"><span>${esc(n)}</span><b>${v}</b></div>`).join("")}<div class="summaryTotal">Celkem: ${total} vozidel</div><h3>Sm\u011Bry a pohyby</h3>${Object.keys(dirs).length ? Object.entries(dirs).map(([k, v]) => `<div class="stat"><span>${esc(k)}</span><b>${v}</b></div>`).join("") : '<span class="muted">Bez zaznamenan\xFDch vozidel.</span>'}</div>`;
     }
-    function renderUserFinal(reason = "manual") {
+    function renderUserFinal() {
+      const identity = JSON.parse(sessionStorage.getItem("trafficUser") || "{}");
+      const user = current.users.find(u => u.id === identity.id) || {};
+      const w = workSummary(current, user);
       const messages = {
         manual: "Ukončili jste své sčítání.",
         inactivity: "Sčítání ukončeno z důvodu nepřítomnosti (20 minut bez aktivity).",
         "session-ended": "Vaše sčítání ukončil správce ukončením celého sčítání."
       };
-      $("finishUser").querySelector(".thanks > p").textContent = messages[reason] || messages.manual;
-      $("userFinal").innerHTML = summaryHtml(records, true);
+      $("finishUser").querySelector(".thanks > p").textContent = w.confirmed
+        ? (messages[w.finishReason] || "Vaše sčítání bylo ukončeno.")
+        : "Ukončení čeká na potvrzení serverem. Připojte se k internetu; konečné údaje se doplní automaticky.";
+      const rows = [["Pracovní doba", w.confirmed ? decimal(w.hours) + " h" : "Čeká na server"],
+        ["Hodinová sazba", decimal(w.hourlyRate) + " Kč/h"],
+        ["Vypočtená odměna", w.confirmed ? decimal(w.reward) + " Kč" : "Čeká na server"],
+        ["Způsob ukončení", w.confirmed ? w.reasonLabel : "Čeká na server"]];
+      $("userFinal").innerHTML = summaryHtml(records, true) + `<div class="summaryBox" aria-live="polite"><h3>Pracovní doba a odměna</h3>${rows.map(([label,value]) => `<div class="stat"><span>${esc(label)}</span><b>${esc(value)}</b></div>`).join("")}${w.confirmed ? `<p class="muted">Ukončeno: ${esc(new Date(w.finishedAt).toLocaleString("cs-CZ"))}. Odměna se počítá z celé doby; zobrazené hodiny jsou zaokrouhlené.</p>` : ""}</div>`;
       $("presenceBar")?.classList.add("hidden");
+      $("creatorFinishActions").classList.toggle("hidden", !isCreator);
+    }
+    async function acceptServerFinish(data, identity) {
+      await mutateLocal(async () => {
+        const sessions = await db();
+        const saved = sessions[identity.code];
+        if (saved) {
+          const user = saved.users.find(u => u.id === identity.id);
+          if (user) Object.assign(user, data.user || { finishedAt: data.finishedAt, finishReason: data.finishReason });
+          await saveDB(sessions);
+          if (current?.code === identity.code) {
+            const local = current.users.find(u => u.id === identity.id);
+            if (local) Object.assign(local, data.user || { finishedAt: data.finishedAt, finishReason: data.finishReason });
+          }
+        }
+      });
+      const shown = JSON.parse(sessionStorage.getItem("trafficUser") || "{}");
+      if (current?.code === identity.code && shown.id === identity.id && !$("finishUser").classList.contains("hidden")) renderUserFinal();
+    }
+    async function showServerFinish(data, identity) {
+      await acceptServerFinish(data, identity);
+      await storage.setItem("trafficFinal", JSON.stringify(identity));
+      await storage.removeItem("trafficActive");
+      clearInterval(timer);
+      $("sheet").classList.remove("open");
+      renderUserFinal();
+      show("finishUser");
     }
     async function renderAdminFinal() {
       $("finishAdmin").querySelector(".thanks > p").textContent = "Jako správce jste ukončili celé sčítání.";
@@ -2589,7 +2629,8 @@
       await renderAdmin();
       show("admin");
     };
-    $("userHome").onclick = () => {
+    $("userHome").onclick = async () => {
+      await storage.removeItem("trafficFinal");
       vib();
       records = [];
       selectedDir = null;
@@ -2614,9 +2655,16 @@
       finishing = (async () => {
         const pending = JSON.parse(await storage.getItem("trafficFinishes") || "[]");
         for (const x of pending) {
-          if (JSON.parse(await storage.getItem("trafficQueue") || "[]").some((q) => q.code === x.code && q.record.userId === x.id)) continue;
-          const result = await apiResult("/sessions/" + x.code + "/users/" + x.id + "/finish", { method: "POST", headers: { "X-Participant-Token": await participantToken(x.code, x.id) }, body: JSON.stringify({ reason: x.reason || "manual" }) });
+          const snapshot = await apiResult("/sessions/" + x.code);
+          const finishedUser = snapshot.ok && snapshot.data.users.find(u => u.id === x.id && u.finishedAt);
+          let result;
+          if (finishedUser) result = { ok: true, data: { user: finishedUser, finishedAt: finishedUser.finishedAt, finishReason: finishedUser.finishReason } };
+          else {
+            if (JSON.parse(await storage.getItem("trafficQueue") || "[]").some((q) => q.code === x.code && q.record.userId === x.id)) continue;
+            result = await apiResult("/sessions/" + x.code + "/users/" + x.id + "/finish", { method: "POST", headers: { "X-Participant-Token": await participantToken(x.code, x.id) }, body: JSON.stringify({ reason: x.reason || "manual" }) });
+          }
           if (result.ok) {
+            await acceptServerFinish(result.data, x);
             await mutateLocal(async () => {
               const latest = JSON.parse(await storage.getItem("trafficFinishes") || "[]");
               await storage.setItem("trafficFinishes", JSON.stringify(latest.filter((y) => y.code !== x.code || y.id !== x.id)));
@@ -2667,15 +2715,12 @@
         await flushFinishes();
         if (!active || !u2 || !JSON.parse(await storage.getItem("trafficActive") || "null")) return;
         const r = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/heartbeat", { method: "POST", headers: { "X-Participant-Token": await participantToken(u2.code, u2.id) }, body: "{}" });
-        if (r.ok && r.data.ended) {
-          await storage.removeItem("trafficActive");
-          clearInterval(timer);
-          $("sheet").classList.remove("open");
-          renderUserFinal("session-ended");
-          show("finishUser");
-        } else if (r.ok && r.data.autoFinished) {
-          await finishMyCounting("inactivity");
+        if (r.ok && r.data.finishedAt) {
+          await showServerFinish(r.data, u2);
+        } else if (r.ok && r.data.presenceDue) {
+          $("presenceBar")?.classList.remove("hidden");
         }
+
       } catch (e) {
         console.warn("Periodic sync:", e);
         await netStatus();
@@ -2684,7 +2729,7 @@
     const active = JSON.parse(await storage.getItem("trafficActive") || "null");
     if (active) {
       const saved = (await db())[active.code];
-      if (saved && !saved.ended) {
+      if (saved) {
         const dir = saved.directions.findIndex((d) => d.name === active.direction);
         if (dir >= 0) {
           current = saved;
@@ -2705,6 +2750,23 @@
           tick();
         }
       }
+    }
+    const finalIdentity = !active && JSON.parse(await storage.getItem("trafficFinal") || "null");
+    if (finalIdentity) {
+      const saved = (await db())[finalIdentity.code];
+      if (saved) {
+        current = saved;
+        sessionStorage.setItem("trafficUser", JSON.stringify(finalIdentity));
+        records = saved.records.filter(r => r.userId === finalIdentity.id);
+        isCreator = !!(await adminToken(saved.code));
+        renderUserFinal();
+        show("finishUser");
+        await flushFinishes();
+      }
+    }
+    if (active && current?.code === active.code) {
+      const result = await apiResult("/sessions/" + active.code + "/users/" + active.id + "/heartbeat", { method: "POST", headers: { "X-Participant-Token": await participantToken(active.code, active.id) }, body: "{}" });
+      if (result.ok && result.data.finishedAt) await showServerFinish(result.data, active);
     }
     await initAccounts({ async open(code2) {
       const r = await apiResult("/sessions/" + code2 + "/manage");
