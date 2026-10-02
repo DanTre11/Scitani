@@ -14,4 +14,6 @@ Expected health marker: `build: "v1.4.0-payroll-20261002"`. The embedded final s
 
 Validation: syntax check, SQLite/D1 adapter regression tests (including stored session ends before/after inactivity deadlines), and all 10 Node/frontend/Excel tests passed. The existing Render test verified the shared frontend earlier; this does not validate Cloudflare production.
 
-Deployment status: prepared, not deployed. Cloudflare dashboard access is blocked by its browser security challenge. Deploy the generated module to the existing Worker, preserving bindings and domains; then verify the health build marker and a new participant final screen. No D1 migration or historical data rewrite is required.
+Production deployment: Workers Builds is connected to cloudflare-1.4.0. The root wrangler.jsonc targets the existing scitani-dopravy-candidate-v130 Worker and the existing DB UUID supplied from its dashboard. The default deploy command is npx wrangler deploy. No D1 migration or historical data rewrite is performed. Routes are intentionally omitted so dashboard-managed domains remain unchanged. Only the two public icons are staged as ASSETS; application assets are embedded in the reviewed release. Runtime variables are preserved with keep_vars. Verify /health build v1.4.0-payroll-20261002 after each deployment; a commit alone is not proof of deployment.
+
+Deployment validation: pinned Wrangler 4.146.0; wrangler deploy --dry-run successfully bundles the Worker and reports the existing DB plus the ASSETS binding. No credentials are stored in this repository.
