@@ -20,11 +20,9 @@ Procenta zahrnují pouze aktivní kategorie. Největší zbytky rozdělují dese
 
 Excel zachovává první čtyři listy: Souhrn, Průjezdy, 15min intervaly, Pracovní doba a odměny. Přidány jsou Intenzita a skladba a Metodika. Výpočty sdílí s administrací a výsledky. Pracovní čas a odměny nadále používají nezměněný `work-summary.js`.
 
-## Budoucí školní vizuál
+## Školní vizuál
 
-Žádné školní logo nebo barvy nejsou vymyšleny. Současnou paletu zachovávají proměnné `--brand-accent`, `--brand-background`, `--brand-surface`, `--brand-text`, `--brand-font` v `modern.css`. Připraven je skrytý `#schoolLogo` a hlavička `[data-brand-slot=header]`. Jednotlivé plochy lze stylovat přes `#home`, `#setup`, `#accountPanel` (včetně přihlášení), `#admin`, `#finishUser`, `#finishAdmin`. Excel má centrální `styles.xml` a generátor listů `sheetXml` v `buildExcel`, kde lze později doplnit styl exportu.
-
-PWA: shell obsahuje nový modul statistik, novou verzi cache a zapojenou registraci service workeru i manifest. Haptika zůstává v původní platformní vrstvě; fyzické vibrace vyžadují test na zařízení.
+Školní vzhled je dokončen podle dodaného grafického manuálu, hlavičkového papíru a prezentace. Používá původní logo, oborovou ikonu, školní modrou a lokálně uložené písmo Roboto. Podrobnosti, původ souborů a způsob použití jsou v [BRANDING.md](BRANDING.md). Přidaná sada tests/branding.cjs ověřuje vzhled a chování v mobilních i desktopových šířkách.
 
 ## Ověření
 

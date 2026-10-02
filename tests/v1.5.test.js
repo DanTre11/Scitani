@@ -36,6 +36,8 @@ test('Excel preserves four sheets, dynamic categories, 15min counts and hourly p
  assert.doesNotMatch(files['xl/worksheets/sheet1.xml'],/Autobusy|Tramvaje|Kamiony/);
  assert.match(files['xl/worksheets/sheet3.xml'],/<v>37<\/v>/);assert.match(files['xl/worksheets/sheet3.xml'],/<v>148<\/v>/);
  assert.match(files['xl/worksheets/sheet5.xml'],/<v>148<\/v>/);
+ assert.match(files['xl/styles.xml'],/<fgColor rgb="FF002B4F"\/>/);
+ assert.match(files['xl/styles.xml'],/<color rgb="FFFFFFFF"\/>/);
  current.categories=['tram'];current.directions=[base().directions[1]];current.records=[rec(1,'Tramvaje','Centrum')];
  await vm.runInContext('buildExcel(current.records,"tram.xlsx")',ctx);assert.match(files['xl/worksheets/sheet1.xml'],/Tramvaje/);assert.doesNotMatch(files['xl/worksheets/sheet1.xml'],/Osobní auta/);
 });

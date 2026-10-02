@@ -38,6 +38,8 @@ const {spawn}=require('node:child_process');
  // PWA shell includes the shared statistics module and loads after disconnection.
  const pwa=await browser.newContext({serviceWorkers:'allow'}),page=await pwa.newPage();await page.goto(origin);await page.locator('#appContent').waitFor({state:'visible'});
  await page.evaluate(()=>Promise.race([navigator.serviceWorker.ready,new Promise((_,reject)=>setTimeout(()=>reject(Error('PWA timeout')),15000))]));await page.reload();await pwa.setOffline(true);await page.reload();await page.locator('#appContent').waitFor({state:'visible'});assert.equal(await page.evaluate(()=>window.trafficStats.categories({}).length),4);console.log('PASS PWA offline shell with v1.5 statistics');
+ assert.equal(await page.evaluate(async()=>{await document.fonts.ready;const font=await fetch('/brand/Roboto.ttf'),logo=await fetch('/brand/school-logo.png');return document.fonts.check('16px Roboto')&&font.ok&&font.headers.get('content-type')==='font/ttf'&&logo.ok;}),true);
+ console.log('PASS school font and logo available offline');
  for(const category of ['car','tram']){
    const context=await browser.newContext({serviceWorkers:'block'}),p=await context.newPage();p.on('pageerror',e=>errors.push(e.message));await p.goto(origin);await p.locator('#createHome').click();
    for(const [id,value] of Object.entries({place:'Single '+category,station:'S1',group:'Test',hourlyRate:'200'}))await p.locator('#'+id).fill(value);
