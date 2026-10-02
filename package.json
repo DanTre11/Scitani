@@ -5,9 +5,14 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test tests/*.test.js",
-    "check": "node --check server.js && node --check app.bundle.js && node --check work-summary.js && node --check sw.js && node --check traffic-stats.js"
+    "check": "node --check server.js && node --check app.bundle.js && node --check work-summary.js && node --check sw.js && node --check traffic-stats.js",
+    "build:cloudflare": "node cloudflare/prepare-deploy.mjs",
+    "test:cloudflare": "node cloudflare/prepare-deploy.mjs && node cloudflare/test-worker.mjs"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "wrangler": "4.146.0"
   }
 }

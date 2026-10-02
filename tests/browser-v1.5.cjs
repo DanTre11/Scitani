@@ -3,7 +3,7 @@ const {spawn}=require('node:child_process');
 (async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'scitani-ui15-'));let server,browser;
  try{
- server=spawn(process.execPath,['server.js'],{cwd:path.join(__dirname,'..'),env:{...process.env,PORT:'0',DATA_FILE:path.join(dir,'data.json')},stdio:['ignore','pipe','inherit']});
+ server=spawn(process.execPath,[process.env.WORKER_TEST?'cloudflare/test-server.mjs':'server.js'],{cwd:path.join(__dirname,'..'),env:{...process.env,PORT:'0',DATA_FILE:path.join(dir,'data.json')},stdio:['ignore','pipe','inherit']});
  const origin=await new Promise(resolve=>server.stdout.on('data',b=>{const m=b.toString().match(/localhost:(\d+)/);if(m)resolve('http://127.0.0.1:'+m[1]);}));
  browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
  const contexts=await Promise.all([0,1,2].map(()=>browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block'})));
