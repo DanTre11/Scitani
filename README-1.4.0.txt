@@ -1,7 +1,8 @@
-SČÍTÁNÍ DOPRAVY 1.4.0 – OFICIÁLNÍ VYDÁNÍ
+SČÍTÁNÍ DOPRAVY 1.4.0 – VÝVOJOVÁ VĚTEV
 
-Vydáno: 1. října 2026
-Produkční větev: main
+Aktualizováno: 1. října 2026
+Větev: Develop-1.4.0
+Produkční main a stabilní v1.3 se touto změnou nemění.
 
 Novinky:
 - Upozornění po 10 minutách bez započítání vozidla nebo potvrzení přítomnosti.
@@ -15,4 +16,4 @@ Novinky:
 
 Ověření:
 - Automatické testy synchronizace, nečinnosti, souhrnů a Excelu.
-- Uživatel potvrdil funkčnost testovací aplikace.
+- Podrobnosti aktuální kontroly a její omezení: AUDIT-1.4.0.md.
