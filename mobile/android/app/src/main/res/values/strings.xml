@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sčítání dopravy 1.5</string>
+    <string name="title_activity_main">Sčítání dopravy 1.5</string>
+    <string name="package_name">org.scitanidopravnihoproudu.mobile</string>
+    <string name="custom_url_scheme">org.scitanidopravnihoproudu.mobile</string>
+</resources>

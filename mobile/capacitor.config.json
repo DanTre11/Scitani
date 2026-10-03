@@ -1,0 +1,22 @@
+{
+  "appId": "org.scitanidopravnihoproudu.mobile",
+  "appName": "Sčítání dopravy 1.5",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "hostname": "localhost",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "automatic"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": false
+    }
+  },
+  "backgroundColor": "#FFFFFF"
+}

@@ -1,0 +1,24 @@
+{
+  "name": "scitani-dopravy-mobile",
+  "version": "1.5.0",
+  "private": true,
+  "scripts": {
+    "prepare:web": "node scripts/prepare-web.mjs",
+    "sync": "npm run prepare:web && cap sync",
+    "android": "cap open android",
+    "ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.5.2",
+    "@capacitor/android": "8.5.2",
+    "@capacitor/ios": "8.5.2",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/filesystem": "8.1.3",
+    "@capacitor/share": "8.0.2",
+    "@capacitor/clipboard": "8.0.1",
+    "@capacitor/haptics": "8.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2"
+  }
+}
