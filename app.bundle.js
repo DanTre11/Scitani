@@ -2264,7 +2264,7 @@
     $("start").onclick = async () => {
       vib();
       if (!await requireStorage()) return;
-      if(current.presenceVerification&&!confirm("Během sčítání bude při kontrolách přítomnosti zaznamenána poloha zařízení. Poloha slouží k ověření přítomnosti na přiděleném stanovišti."))return;
+
       const n = $("userName").value.trim();
       if (!n) return alert("Zadejte sv\xE9 jm\xE9no.");
       if (selectedDir === null) return alert("Vyberte sm\u011Br s\u010D\xEDt\xE1n\xED.");
