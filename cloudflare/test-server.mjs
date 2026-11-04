@@ -5,7 +5,7 @@ import worker from './worker-release-1.6.0.mjs';
 import {testDatabase} from './test-db.mjs';
 const {db}=testDatabase();
 const env={DB:db,ASSETS:{async fetch(req){
-  const p=new URL(req.url).pathname,types={png:'image/png',ttf:'font/ttf',txt:'text/plain'};
+  const p=new URL(req.url).pathname,types={js:'application/javascript; charset=utf-8',css:'text/css; charset=utf-8',png:'image/png',ttf:'font/ttf',txt:'text/plain; charset=utf-8'};
   try{return new Response(await readFile(new URL('../.cloudflare-assets'+p,import.meta.url)),{headers:{'Content-Type':types[p.split('.').pop()]||'application/octet-stream'}})}catch{return new Response('Not found',{status:404})}
 }}};
 http.createServer(async(req,res)=>{

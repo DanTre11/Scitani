@@ -1876,6 +1876,7 @@
       screens.forEach((x) => $(x).classList.toggle("hidden", x !== id));
       $("bottom").classList.toggle("hidden", id !== "count");
       if (id !== "count") $("presenceBar")?.classList.add("hidden");
+      if (id === "admin") setTimeout(() => liveMap?.invalidateSize(), 0);
     }
     ;
     function vib() {
@@ -2552,11 +2553,12 @@
       $("locationList").innerHTML=d.users.map((u,i)=>{const l=u.lastLocation,name=presentation?"Sčítač "+(i+1):u.name,status=u.finishedAt?"Sčítání ukončeno":(u.lastVehicleAt&&Date.now()-Date.parse(u.lastVehicleAt)>=(Number(u.presenceChecksSinceVehicle||0)+1)*600000)?"Čeká na potvrzení přítomnosti":l?.verificationStatus==="uncertain"?"Poloha nejistá":l?.verificationStatus==="suspicious"?"Podezření na opuštění stanoviště":"Aktivní / poloha OK";return '<article class="adminRow"><b>'+esc(name)+'</b><div>'+esc(u.direction)+' · '+esc(status)+' · poslední vozidlo '+esc(u.lastVehicleAt||"—")+' · potvrzení '+esc(u.lastPresenceAt||"—")+' · kontrol '+Number(u.presenceChecksSinceVehicle||0)+(l?' · poslední ověřená poloha '+new Date(l.serverReceivedAt).toLocaleTimeString('cs-CZ')+' · ±'+Math.round(l.accuracy)+' m · '+(l.distanceFromStation==null?'—':Math.round(l.distanceFromStation)+' m'):' · poloha neověřena')+'</div></article>'}).join("")||'<p class="muted">Zatím nejsou sčítači.</p>';
       if(typeof L!=="undefined"){
         if(!liveMap){liveMap=L.map("liveMap").setView([50.0755,14.4378],12);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(liveMap)}
+        liveMap.invalidateSize();
         liveMap.eachLayer(x=>{if(x instanceof L.Marker)liveMap.removeLayer(x)});
         if(d.station.latitude!=null)L.marker([d.station.latitude,d.station.longitude]).addTo(liveMap).bindPopup("Stanoviště");
         latest.forEach(({u,l},i)=>{const due=u.lastVehicleAt&&Date.now()-Date.parse(u.lastVehicleAt)>=(Number(u.presenceChecksSinceVehicle||0)+1)*600000,key=u.finishedAt?"location-ended":l.verificationStatus==="suspicious"?"location-suspect":l.verificationStatus==="uncertain"?"location-uncertain":due?"location-wait":"location-ok",icon=L.divIcon({className:"",html:'<span class="locationDot '+key+'"></span>',iconSize:[18,18],iconAnchor:[9,9]}),m=L.marker([l.latitude,l.longitude],{icon}).addTo(liveMap);m.bindPopup("<b>"+esc(presentation?"Sčítač "+(i+1):u.name)+"</b><br>"+esc(u.direction)+"<br>"+esc(u.finishedAt?"Sčítání ukončeno":due?"Čeká na potvrzení přítomnosti":l.verificationStatus)+"<br>Poslední vozidlo: "+esc(u.lastVehicleAt||"—")+"<br>Poslední potvrzení: "+esc(u.lastPresenceAt||"—")+"<br>Ověřeno: "+new Date(l.serverReceivedAt).toLocaleTimeString("cs-CZ")+" · ±"+Math.round(l.accuracy)+" m<br>Vzdálenost: "+(l.distanceFromStation==null?"—":Math.round(l.distanceFromStation)+" m")+" · kontrol: "+Number(u.presenceChecksSinceVehicle||0))});
         const points=latest.map(({l})=>[l.latitude,l.longitude]);if(d.station.latitude!=null)points.push([d.station.latitude,d.station.longitude]);if(points.length)liveMap.fitBounds(points,{padding:[30,30],maxZoom:16});
-      }
+      }else{$("liveMap").textContent="Mapové podklady se nepodařilo načíst. Informace o sčítačích jsou uvedeny v seznamu níže.";$("liveMap").style.display="grid";$('liveMap').style.placeItems="center";$('liveMap').style.padding="18px";$('liveMap').style.color="#52687b"}
     }
     $("presentationMode").onclick=()=>{presentation=!presentation;$("locationPanel").requestFullscreen?.();$("locationList").style.fontSize=presentation?"1.2em":"";$("presentationMode").textContent=presentation?"Ukončit prezentační režim":"Prezentační režim";refreshLocations()};
     setInterval(()=>{if(!$('admin').classList.contains('hidden'))refreshLocations().catch(()=>{})},15000);

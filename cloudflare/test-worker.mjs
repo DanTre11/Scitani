@@ -2,13 +2,15 @@ import {testDatabase} from './test-db.mjs';
 import stats from '../traffic-stats.js';
 import workSummary from '../work-summary.js';
 import {createHash} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import worker from './worker-release-1.6.0.mjs';
 const {sql,db}=testDatabase();
-const env={DB:db,ASSETS:{fetch:async()=>new Response('icon')}};
+const env={DB:db,ASSETS:{fetch:async(req)=>{try{return new Response(await readFile(new URL('../.cloudflare-assets'+new URL(req.url).pathname,import.meta.url)))}catch{return new Response('missing',{status:404})}}}};
 async function call(path,method='GET',data,headers={}){const r=await worker.fetch(new Request('https://counter.test'+path,{method,headers:{'Content-Type':'application/json',...headers},body:data===undefined?undefined:JSON.stringify(data)}),env);const text=await r.text();let body;try{body=JSON.parse(text)}catch{body=text}return {status:r.status,body,headers:r.headers}}
 assert.equal((await call('/health')).body.version,'1.6.0');
 assert((await call('/')).body.includes('app.bundle.js'));assert((await call('/app.bundle.js')).body.includes('20 minut bez aktivity'));
+assert((await call('/leaflet/leaflet.js')).body.includes('Leaflet'));assert((await call('/leaflet/leaflet.css')).body.includes('.leaflet-pane'));
 const created=await call('/api/sessions','POST',{code:'TEST14',place:'Praha',station:'A',group:'Test',hourlyRate:150,directions:[{name:'A',moves:[]},{name:'B',moves:[]}]});assert.equal(created.status,201);assert.equal(created.body.session.hourlyRate,150);
 const admin={'X-Admin-Token':created.body.adminToken},token={'X-Participant-Token':'a'.repeat(64)};
 async function join(id){assert.equal((await call('/api/sessions/TEST14/users','POST',{id,name:id,direction:'A'},token)).status,201)}

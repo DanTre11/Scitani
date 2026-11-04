@@ -15,3 +15,8 @@ await rm(assets,{recursive:true,force:true});
 await mkdir(new URL('brand/',assets),{recursive:true});
 for (const name of ['icon-192.png','icon-512.png','brand/school-logo.png','brand/school-pattern.png','brand/traffic-study.png','brand/Roboto.ttf','brand/OFL.txt'])
   await copyFile(new URL(name,root),new URL(name,assets));
+
+await mkdir(new URL('leaflet/images/',assets),{recursive:true});
+for (const name of ['leaflet.js','leaflet.css','images/layers.png','images/layers-2x.png','images/marker-icon.png','images/marker-icon-2x.png','images/marker-shadow.png'])
+  await copyFile(new URL('node_modules/leaflet/dist/'+name,root),new URL('leaflet/'+name,assets));
+await copyFile(new URL('node_modules/leaflet/LICENSE',root),new URL('leaflet/LICENSE',assets));

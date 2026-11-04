@@ -100,7 +100,7 @@ var Accounts = class {
 };
 
 // src/worker.js
-var FILES = /* @__PURE__ */ new Set(["/", "/index.html", "/app.bundle.js", "/work-summary.js", "/app.js", "/accounts.js", "/boot.js", "/modern.css", "/school.css", "/traffic-stats.js", "/brand/school-logo.png", "/brand/school-pattern.png", "/brand/traffic-study.png", "/brand/Roboto.ttf", "/brand/OFL.txt", "/sheet-gesture.js", "/sw.js", "/manifest.json", "/icon-192.png", "/icon-512.png"]);
+var FILES = /* @__PURE__ */ new Set(["/", "/index.html", "/app.bundle.js", "/work-summary.js", "/app.js", "/accounts.js", "/boot.js", "/modern.css", "/school.css", "/traffic-stats.js", "/brand/school-logo.png", "/brand/school-pattern.png", "/brand/traffic-study.png", "/brand/Roboto.ttf", "/brand/OFL.txt", "/sheet-gesture.js", "/sw.js", "/manifest.json", "/icon-192.png", "/icon-512.png", "/leaflet/leaflet.js", "/leaflet/leaflet.css", "/leaflet/LICENSE", "/leaflet/images/layers.png", "/leaflet/images/layers-2x.png", "/leaflet/images/marker-icon.png", "/leaflet/images/marker-icon-2x.png", "/leaflet/images/marker-shadow.png"]);
 var json = /* @__PURE__ */ __name((x, status = 200, extra = {}) => Response.json(x, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin", "X-Frame-Options": "DENY", ...extra } }), "json");
 async function body(req) {
   const reader = req.body?.getReader();
@@ -210,7 +210,7 @@ async function handle(req, env) {
     const asset = embedded ? new Response(req.method === "HEAD" ? null : embedded.body, {headers: {"Content-Type": embedded.type}}) : await env.ASSETS.fetch(req);
     const r = new Response(asset.body, asset);
     r.headers.set("Cache-Control", "no-cache");
-    r.headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    r.headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
     r.headers.set("X-Content-Type-Options", "nosniff");
     r.headers.set("Referrer-Policy", "same-origin");
     return r;
