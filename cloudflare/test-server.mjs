@@ -1,7 +1,7 @@
 // Local-only HTTP adapter for browser tests of the actual production Worker.
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
-import worker from './worker-release-1.5.0.mjs';
+import worker from './worker-release-1.6.0.mjs';
 import {testDatabase} from './test-db.mjs';
 const {db}=testDatabase();
 const env={DB:db,ASSETS:{async fetch(req){

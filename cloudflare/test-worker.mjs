@@ -3,11 +3,11 @@ import stats from '../traffic-stats.js';
 import workSummary from '../work-summary.js';
 import {createHash} from 'node:crypto';
 import assert from 'node:assert/strict';
-import worker from './worker-release-1.5.0.mjs';
+import worker from './worker-release-1.6.0.mjs';
 const {sql,db}=testDatabase();
 const env={DB:db,ASSETS:{fetch:async()=>new Response('icon')}};
 async function call(path,method='GET',data,headers={}){const r=await worker.fetch(new Request('https://counter.test'+path,{method,headers:{'Content-Type':'application/json',...headers},body:data===undefined?undefined:JSON.stringify(data)}),env);const text=await r.text();let body;try{body=JSON.parse(text)}catch{body=text}return {status:r.status,body,headers:r.headers}}
-assert.equal((await call('/health')).body.version,'1.5.0');
+assert.equal((await call('/health')).body.version,'1.6.0');
 assert((await call('/')).body.includes('app.bundle.js'));assert((await call('/app.bundle.js')).body.includes('20 minut bez aktivity'));
 const created=await call('/api/sessions','POST',{code:'TEST14',place:'Praha',station:'A',group:'Test',hourlyRate:150,directions:[{name:'A',moves:[]},{name:'B',moves:[]}]});assert.equal(created.status,201);assert.equal(created.body.session.hourlyRate,150);
 const admin={'X-Admin-Token':created.body.adminToken},token={'X-Participant-Token':'a'.repeat(64)};
@@ -16,7 +16,7 @@ await join('one');
 const joined=(await call('/api/sessions/TEST14/users','POST',{id:'one',name:'changed',direction:'A',joined:'2099-01-01'},token)).body;
 assert.equal(joined.name,'one');assert(Number.isFinite(Date.parse(joined.joined)));assert(!joined.joined.startsWith('2099'));
 const base='/api/sessions/TEST14/users/one/';
-function age(minutes){sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?) WHERE id='one'").run(new Date(Date.now()-minutes*60000).toISOString())}
+function age(minutes){const t=new Date(Date.now()-minutes*60000).toISOString();sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?,'$.lastVehicleAt',?) WHERE id='one'").run(t,t)}
 age(9);assert.equal((await call(base+'heartbeat','POST',{},token)).body.presenceDue,false);
 age(10.1);assert.equal((await call(base+'heartbeat','POST',{},token)).body.presenceDue,true);
 assert.equal((await call(base+'presence','POST',{},token)).status,200);assert.equal((await call(base+'heartbeat','POST',{},token)).body.presenceDue,false);
@@ -58,7 +58,7 @@ assert.equal(ended.users.find(u=>u.id==='after').finishReason,'session-ended');
 assert(Number.isFinite(Date.parse(ended.serverNow)));
 await call('/api/sessions/TEST14/end','POST',{},admin);
 assert.equal((await call('/api/sessions/TEST14')).body.endedAt,ended.endedAt);
-assert.equal((await call('/health')).body.build,'v1.5.0-school-20261002');
+assert.equal((await call('/health')).body.build,'v1.6.0-presence-location');
 assert((await call('/work-summary.js')).body.includes('trafficWorkSummary'));
 console.log('PASS: embedded interface, D1 SQLite queries, 10/20 minute limits, presence and count reset, repeated inactivity detection, all finish reasons, hourly rate, legacy rows and authorization.');
 
@@ -107,6 +107,20 @@ assert.equal((await call('/api/sessions/OWN015/manage','GET',undefined,cookies.a
 assert.equal((await call('/api/dashboard','GET',undefined,cookies.user)).status,403);
 assert.equal((await call('/api/dashboard','GET',undefined,cookies.owner)).body.length,1);
 assert.equal((await call('/api/accounts','GET',undefined,cookies.admin)).body.length,4);
+const geo=await call('/api/sessions','POST',{...input,code:'GEO160',presenceVerification:true,stationLatitude:50,stationLongitude:14,stationAccuracy:5},cookies.owner);assert.equal(geo.status,201);
+const geoAdmin={'X-Admin-Token':geo.body.adminToken},geoToken={'X-Participant-Token':'c'.repeat(64)},geoBase='/api/sessions/GEO160';
+assert.equal((await call(geoBase+'/users','POST',{id:'geo',name:'Geo',direction:'Road'},geoToken)).status,401);
+assert.equal((await call(geoBase+'/users','POST',{id:'geo',name:'Geo',direction:'Road'},{...geoToken,...cookies.owner})).status,201);
+for(let i=1;i<=3;i++){const result=await call(geoBase+'/users/geo/presence','POST',{},geoToken);assert.equal(result.body.presenceChecksSinceVehicle,i);assert.equal(result.body.reauthRequired,i===3)}
+assert.equal((await call(geoBase+'/users/geo/location','POST',{latitude:50,longitude:14,accuracy:12,eventType:'reauth'},{...geoToken,...cookies.owner})).body.verificationStatus,'ok');
+assert.equal(JSON.parse(sql.prepare("SELECT data FROM users WHERE code='GEO160' AND id='geo'").get().data).presenceChecksSinceVehicle,0);
+assert.equal((await call(geoBase+'/users/geo/location','POST',{latitude:50,longitude:14,accuracy:300,eventType:'presence-check'},geoToken)).body.verificationStatus,'uncertain');
+const outside={latitude:50.02,longitude:14,accuracy:5,eventType:'presence-check'};
+assert.equal((await call(geoBase+'/users/geo/location','POST',outside,geoToken)).body.finishedAt,null);
+assert.equal((await call(geoBase+'/users/geo/location','POST',outside,geoToken)).body.finishReason,'location-mismatch');
+assert.equal((await call(geoBase+'/locations')).status,403);
+const geoHistory=await call(geoBase+'/locations','GET',undefined,cookies.owner);assert.equal(geoHistory.status,200);assert.equal(geoHistory.body.history.length,4);
+assert.equal((await call('/api/sessions/GEO160/users/geo/heartbeat','POST',{},geoToken)).body.finishReason,'location-mismatch');
 for(const p of ['/server.js','/wrangler.jsonc','/cloudflare/worker.mjs','/.git/config','/data.json','/tests/v1.5.test.js'])assert.equal((await call(p)).status,404);
 for(const p of ['/traffic-stats.js','/school.css','/brand/school-logo.png','/brand/Roboto.ttf'])assert.equal((await call(p)).status,200);
-console.log('PASS: v1.5 categories, separate tram directions, two participants, undo, queued records, composition, intensity, payroll, legacy sessions, pagination, roles and public asset allowlist.');
+console.log('PASS: v1.6 location verification, reauthentication, map-history authorization plus regression coverage for categories, tram directions, participants, offline records, statistics, payroll, legacy data and roles.');

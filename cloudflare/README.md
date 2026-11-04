@@ -1,18 +1,24 @@
-# Cloudflare production 1.5.0
+# Sčítání dopravy 1.6.0 – DOD Candidate
 
-Production uses the existing `scitani-dopravy-candidate-v130` Worker and D1 database configured in root `wrangler.jsonc`. The historical name is intentional. Do not replace the database binding or import a development database.
+Vývojová větev `Develop-1.6.0` vychází z funkčního zdroje `Develop-1.5.0`. Produkční `main` nebyl změněn a tento kandidát nebyl nasazen.
 
-Workers Builds is currently connected to `cloudflare-1.4.0`. For this release, merge the reviewed Develop-1.5.0 changes into main, then fast-forward the connected deployment branch to the same tested commit. The release includes the previous production branch in its ancestry. No schema migration or account/history rewrite is required: categories and direction modes use the existing session JSON. Old sessions retain the four road categories.
+## Změny
 
-The root configuration preserves dashboard-managed domains and environment variables. Only explicitly listed images, the font and its license are staged into `.cloudflare-assets`; frontend text assets are embedded in the Worker. The Worker allowlist blocks source, test, database and configuration files.
+- Nečinnost 10/20 minut zůstává podle poslední aktivity. Záznam vozidla, potvrzení přítomnosti a aktivita mají oddělené časy.
+- Kontroly bez vozidla se opakují po 10 minutách od posledního vozidla. Vozidlo resetuje počitadlo. Třetí kontrola u rozšířeného režimu vyžádá účet a nové GPS ověření.
+- Rozšířený režim vyžaduje přihlášený účet. Heslo se nikde neukládá do aplikace ani místního úložiště.
+- GPS se čte při připojení a kontrolách. Server vyhodnocuje vzdálenost, přesnost, varování a ukončení po dvou kvalitních odlehlých měřeních. Přesná historie je dostupná jen správci daného sčítání a lze ji odstranit přes autorizované `DELETE /api/sessions/:code/locations`.
+- Administrace má živou mapu OpenStreetMap s automatickým načtením po 15 sekundách a textovým seznamem. Veřejný prezentační režim zde používá přihlášenou správcovskou relaci; anonymizuje jména v zobrazení.
+- Verze webu, serveru, PWA a Android metadat je `1.6.0` (Android `versionCode 10600`).
 
-Build: `node cloudflare/prepare-deploy.mjs` (also run automatically before Wrangler deployment).
-Test: `node cloudflare/test-worker.mjs` (Node 24 SQLite adapter); `node --test tests/*.test.js`.
-Browser: `WORKER_TEST=1 BROWSER_CHANNEL=msedge node tests/browser-v1.5.cjs` with Playwright available. This starts an isolated in-memory D1 adapter, with real production Worker routing, validation and pagination.
+## Ověření
 
-Expected `/health`: version `1.5.0`, storage `cloudflare-d1`, build `v1.5.0-school-20261002`.
-After deployment, verify health, official school assets, an isolated road/tram session with two participants, admin statistics, Excel, and preserved accounts/archive. Close the release test session afterward. A successful commit alone is not proof of deployment.
+- `npm test` – 22 testů Node prošlo.
+- `npm run test:cloudflare` – Cloudflare Worker s izolovanou SQLite/D1 testovací databází prošel.
+- `npm run check` – syntaxe serveru, aplikace, statistiky, PWA a sdílených modulů prošla.
+- Prohlížečové testy se v tomto prostředí nepodařilo spustit: Playwright nemá kompatibilní headless Chromium; nainstalované systémové Chromium selhalo při startu v omezeném prostředí.
+- Fyzický test dvou telefonů, oprávnění GPS, opětovného přihlášení a Android APK sestavení zůstává před vydáním k provedení na cílových telefonech. Není tvrzeno, že tento test proběhl.
 
-Local validation: all 18 Node tests and the D1 regression suite passed, covering category subsets/tram-only, legacy sessions, roles, two participants, record retries/undo, pagination, payroll and 10/20 minute inactivity. The production Worker browser suite passed with offline queue, Excel and cached branding/PWA. Wrangler 4.138.0 available on the workstation passed a dry run; Workers Builds uses the pinned 4.146.0 dependency.
+## Nasazení
 
-Rollback: the previous production deployment/commit is `d4400936bb175d10084b63ebd2f4cff17c195d3b`. Prefer Cloudflare deployment rollback for operational faults. Since 1.4 cannot accept tram records, do not roll back during active 1.5 tram sessions without coordinating their completion. Existing data must never be reset.
+Před jakýmkoli Cloudflare deployem je nutné nakonfigurovat oddělené kandidátní D1 úložiště a nahradit záměrný placeholder jeho ID. Konfigurace záměrně neukazuje na produkční databázi. Lokální testy používají vlastní databázi a do produkční D1 nezapisují. `main` a produkční služby nebyly nasazeny ani upraveny.

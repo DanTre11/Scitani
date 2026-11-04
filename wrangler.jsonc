@@ -1,8 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "scitani-dopravy-candidate-v130",
+  "name": "scitani-dopravy-candidate-v160",
   "account_id": "4d57fbfa84fddbd6f7514a10794da146",
-  "main": "cloudflare/worker-release-1.5.0.mjs",
+  "main": "cloudflare/worker-release-1.6.0.mjs",
   "compatibility_date": "2026-09-29",
   "compatibility_flags": ["nodejs_compat"],
   "keep_vars": true,
@@ -10,8 +10,8 @@
   "build": { "command": "node cloudflare/prepare-deploy.mjs" },
   "d1_databases": [{
     "binding": "DB",
-    "database_name": "scitani-dopravy-candidate-v130",
-    "database_id": "e8f5f585-a7bd-4fc9-bb99-5c0aa9978e33"
+    "database_name": "scitani-dopravy-candidate-v160",
+    "database_id": "CONFIGURE_ISOLATED_CANDIDATE_D1_DATABASE_ID"
   }],
   "assets": {
     "directory": ".cloudflare-assets",

@@ -1,12 +1,12 @@
-# Sčítání dopravy – Android 1.5.0
+# Sčítání dopravy – Android 1.6.0
 
 Podepsané APK pro přímou instalaci. Android 7.0+, versionCode 10500.
 Identifikátor samostatné instalace: org.scitanidopravnihoproudu.mobile.
-Název v telefonu: Sčítání dopravy 1.5.
+Název v telefonu: Sčítání dopravy 1.6.0
 
 Uživatel schválil instalaci vedle APK 1.4, protože původní podpisový klíč nebyl dostupný. Nová aplikace nepřebírá starou místní offline frontu. Původní aplikaci neodinstalovávat před synchronizací rozpracovaných záznamů. Účty a serverová sčítání zůstávají společná na https://scitanidopravnihoproudu.org.
 
-Rozhraní 1.5, statistiky, odměny a školní podklady jsou zabalené v APK. Nativní funkce: souborové offline úložiště se záložní kopií, HTTP, vibrace, kopírování a sdílení XLSX. Webová produkce se tímto sestavením nemění.
+Rozhraní 1.6.0, statistiky, odměny a školní podklady jsou zabalené v APK. Nativní funkce: souborové offline úložiště se záložní kopií, HTTP, vibrace, kopírování a sdílení XLSX. Webová produkce se tímto sestavením nemění.
 
 ## Sestavení
 
@@ -18,9 +18,9 @@ Proměnné podpisového skriptu: SCITANI_KEYSTORE, SCITANI_PASSWORD_FILE, SCITAN
 ## Ověření
 
 - Release sestavení a kontrola podpisů APK v2/v3 prošly.
-- Metadata potvrzují 1.5.0/10500, nový identifikátor, Android 7+ a spouštěcí aktivitu.
+- Metadata potvrzují 1.6.0/10600, nový identifikátor, Android 7+ a spouštěcí aktivitu.
 - Nativní test: 25 zápisů a obnova, JSON požadavky na produkční server, omezení cílové adresy a vibrace.
 - Všechny zabalené webové soubory odpovídají připravenému rozhraní včetně fontu, loga, statistik a odměn.
 - Fyzický Android ani emulátor nebyl použit. Na telefonu ověřit přihlášení, haptiku a systémové sdílení Excelu.
 
-Adresáře iOS a store pocházejí z projektu 1.4; nejsou novým vydáním iPhone ani publikací v obchodech. Toto vydání dodává pouze Android APK 1.5.
+Adresáře iOS a store pocházejí z projektu 1.4; nejsou novým vydáním iPhone ani publikací v obchodech. Toto vydání dodává pouze Android APK 1.6.0.

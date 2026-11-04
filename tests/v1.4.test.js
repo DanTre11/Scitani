@@ -28,11 +28,11 @@ test('manual finish is authoritative and idempotent',async()=>{
  assert.equal(first.status,200);assert.equal(first.data.finishReason,'manual');assert.deepEqual(retry.data,first.data);
  assert.ok(Math.abs(Date.parse(first.data.finishedAt)-Date.now())<10000);assert.equal(first.data.user.participantToken,undefined);
 });
-test('warning at 10 minutes; presence resets activity',async()=>{
+test('warning schedule remains vehicle based; confirmation resets inactivity but not vehicle-check cycle',async()=>{
  const r=await request('/api/sessions/WARN10/users/u/heartbeat','POST',{});
  assert.equal(r.data.presenceDue,true);assert.ok(!r.data.finishedAt);
  await request('/api/sessions/WARN10/users/u/presence','POST',{});
- assert.equal((await request('/api/sessions/WARN10/users/u/heartbeat','POST',{})).data.presenceDue,false);
+ const after=(await request('/api/sessions/WARN10/users/u/heartbeat','POST',{})).data;assert.equal(after.presenceDue,true);assert.equal(after.user.presenceChecksSinceVehicle,1);assert.ok(!after.finishedAt);
 });
 test('inactivity settles on server read at exact deadline without heartbeat',async()=>{
  const r=await request('/api/sessions/IDLE20');const user=r.data.users[0];

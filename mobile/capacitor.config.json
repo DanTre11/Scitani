@@ -1,6 +1,6 @@
 {
   "appId": "org.scitanidopravnihoproudu.mobile",
-  "appName": "Sčítání dopravy 1.5",
+  "appName": "Sčítání dopravy 1.6.0",
   "webDir": "www",
   "server": {
     "androidScheme": "https",
