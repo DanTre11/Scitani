@@ -202,7 +202,7 @@ async function handle(req, env) {
   const url = new URL(req.url), p = url.pathname.split("/").filter(Boolean), db = env.DB.withSession ? env.DB.withSession("first-primary") : env.DB, accounts = new Accounts(db);
   if (url.pathname === "/health" && req.method === "GET") {
     await q(db, "SELECT 1").first();
-    return json({ ok: true, app: "scitani-dopravy", version: "1.6.0", environment: "candidate", storage: "cloudflare-d1", build: "v1.6.0-presence-location" });
+    return json({ ok: true, app: "scitani-dopravy", version: "1.6.0", environment: "production", storage: "cloudflare-d1", build: "v1.6.0-presence-location" });
   }
   if (p[0] !== "api") {
     if (!["GET", "HEAD"].includes(req.method) || !FILES.has(url.pathname)) fail(404, "not_found");
