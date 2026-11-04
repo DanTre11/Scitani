@@ -1,0 +1,20 @@
+const fs=require('fs'),assert=require('node:assert/strict');
+const source=fs.readFileSync('www/app.bundle.js','utf8');
+for(const file of ['work-summary.js','traffic-stats.js','school.css','brand/school-logo.png','brand/Roboto.ttf'])assert.deepEqual(fs.readFileSync('www/'+file),fs.readFileSync('../'+file),file);
+assert(fs.readFileSync('www/index.html','utf8').includes('traffic-stats.js'));
+const durable=source.slice(source.indexOf('  function checksum(text)'),source.indexOf('  // mobile-app-production-v1.3.0/src/native.js',source.indexOf('  function checksum(text)')));
+const platformSource=source.slice(source.indexOf('  async function platform('),source.indexOf('  // mobile-app-production-v1.3.0/src/scoped-store.js'));
+const platform=new Function('nativeServices','Directory','Encoding','ImpactStyle',durable+platformSource+';return platform;')({}, {Library:'LIBRARY',Cache:'CACHE'},{UTF8:'utf8'},{Light:'LIGHT'});
+(async()=>{
+ const files={},requests=[],haptics=[];
+ const services={Capacitor:{isNativePlatform:()=>true},Filesystem:{readdir:async()=>({files:Object.keys(files).map(name=>({name}))}),readFile:async({path})=>({data:files[path]}),writeFile:async({path,data})=>{files[path]=data;return {uri:'file://'+path}}},CapacitorHttp:{request:async options=>{requests.push(options);return {status:200,data:{ok:true}}}},Haptics:{impact:async x=>haptics.push(x)},App:{addListener:async()=>{}},Clipboard:{write:async()=>{}},Share:{share:async()=>{}}};
+ const p=await platform('https://scitanidopravnihoproudu.org',services);
+ await Promise.all(Array.from({length:25},(_,i)=>p.storage.setItem('event'+i,''+i)));await p.storage.flush();
+ const restored=await platform('https://scitanidopravnihoproudu.org',services);
+ for(let i=0;i<25;i++)assert.equal(restored.storage.getItem('event'+i),''+i);
+ await p.request('https://scitanidopravnihoproudu.org/api/sessions',{method:'POST',body:'{"test":true}',headers:{'Content-Type':'application/json'}});
+ assert.deepEqual(requests[0].data,{test:true});assert.equal(requests[0].disableRedirects,true);
+ await assert.rejects(()=>p.request('https://evil.example/api/sessions',{}));p.vibrate();assert.equal(haptics.length,1);
+ assert(source.includes('Capacitor.isNativePlatform() ? fallback'));
+ console.log('PASS: native durable storage 25 writes/reload, production API routing, request payload, origin restriction and vibration bridge.');
+})().catch(e=>{console.error(e);process.exit(1)});

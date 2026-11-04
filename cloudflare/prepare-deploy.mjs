@@ -8,7 +8,7 @@ for (const [name,type] of Object.entries({
   'modern.css':'text/css; charset=utf-8', 'school.css':'text/css; charset=utf-8',
   'manifest.json':'application/manifest+json', 'sw.js':'text/javascript; charset=utf-8'
 })) embedded['/'+name] = {type,body:await readFile(new URL(name,root),'utf8')};
-await writeFile(new URL('worker-release-1.5.0.mjs',import.meta.url),
+await writeFile(new URL('worker-release-1.6.0.mjs',import.meta.url),
   'const RELEASE_ASSETS = '+JSON.stringify(embedded)+';\n'+await readFile(new URL('worker.mjs',import.meta.url),'utf8'));
 // This fixed output directory contains generated public assets only.
 await rm(assets,{recursive:true,force:true});

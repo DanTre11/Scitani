@@ -1,6 +1,6 @@
 // Shared by the browser, server and regression tests. Never uses the device clock.
 (function (root) {
-  const reasons = { manual: 'Ukončeno sčítačem', inactivity: 'Nečinnost (20 minut)', 'session-ended': 'Ukončeno správcem' };
+  const reasons = { manual: 'Ukončeno sčítačem', inactivity: 'Nečinnost (20 minut)', 'location-mismatch': 'Opakované ověření polohy mimo stanoviště', 'session-ended': 'Ukončeno správcem' };
   function workSummary(session, user = {}) {
     const joined = Date.parse(user.joined);
     const finishedAt = user.finishedAt || (session.ended ? session.endedAt : null);

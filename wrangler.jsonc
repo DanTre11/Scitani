@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "scitani-dopravy-candidate-v130",
   "account_id": "4d57fbfa84fddbd6f7514a10794da146",
-  "main": "cloudflare/worker-release-1.5.0.mjs",
+  "main": "cloudflare/worker-release-1.6.0.mjs",
   "compatibility_date": "2026-09-29",
   "compatibility_flags": ["nodejs_compat"],
   "keep_vars": true,

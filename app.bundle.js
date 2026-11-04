@@ -1835,7 +1835,7 @@
   async function initApp(platform2) {
     enableSheetSwipe(document.getElementById("sheet"));
     const { storage, native } = platform2;
-    const APP_VERSION = "1.5.0";
+    const APP_VERSION = "1.6.0";
     const IS_HOSTED = native || /^https?:$/.test(location.protocol);
     let storageUnavailable = false;
     async function savedApiBase() {
@@ -2004,6 +2004,8 @@
       b.className = q ? "netbar sync" : "netbar online";
       b.textContent = q ? "\u25CF Online \xB7 " + q + " z\xE1znam\u016F \u010Dek\xE1 na synchronizaci" : "\u25CF Online \xB7 v\u0161e synchronizov\xE1no";
     }
+    function currentLocation(){return new Promise((resolve,reject)=>{if(!navigator.geolocation)return reject(Error('location_unavailable'));navigator.geolocation.getCurrentPosition(pos=>resolve({latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy}),reject,{enableHighAccuracy:true,timeout:15000,maximumAge:0})})}
+    async function sendLocation(user,eventType,position){let result=await apiResult('/sessions/'+user.code+'/users/'+user.id+'/location',{method:'POST',headers:{'X-Participant-Token':await participantToken(user.code,user.id)},body:JSON.stringify({...position,eventType})});if(result.ok&&result.data.warning){alert('Poloha vypadá mimo stanoviště. Zkontrolujte oprávnění GPS a proveďte nové měření.');try{const retry=await currentLocation();result=await apiResult('/sessions/'+user.code+'/users/'+user.id+'/location',{method:'POST',headers:{'X-Participant-Token':await participantToken(user.code,user.id)},body:JSON.stringify({...retry,eventType:eventType==='reauth'?'reauth':'manual-check'})})}catch(e){}}return result}
     async function participantToken(code2, id) {
       return await storage.getItem("trafficParticipant:" + code2 + ":" + id) || "";
     }
@@ -2065,6 +2067,8 @@
     function apiProblem(result) {
       if (result.kind === "timeout") return "Server zat\xEDm neodpov\xEDd\xE1. M\u016F\u017Ee se probouzet po ne\u010Dinnosti. Za chv\xEDli to zkuste znovu.";
       if (result.kind === "network") return "Se serverem se nepoda\u0159ilo spojit. Ov\u011B\u0159te internet a stejnou HTTPS adresu aplikace na obou telefonech.";
+      if (result.data?.error === "login_required_for_location") return "Toto sčítání vyžaduje přihlášený účet. Přihlaste se a zkuste to znovu.";
+      if (result.data?.error === "reauth_required") return "Znovu ověřte účet použitý při zahájení sčítání.";
       if (result.kind === "response") return "Server nevr\xE1til o\u010Dek\xE1vanou odpov\u011B\u010F aplikace. Ov\u011B\u0159te dostupnost serveru aplikace.";
       return "Server po\u017Eadavek odm\xEDtl (HTTP " + result.status + "). Zkuste to za chv\xEDli znovu.";
     }
@@ -2149,7 +2153,7 @@
       button.disabled = true;
       button.textContent = "VYTV\xC1\u0158\xCDM S\u010C\xCDT\xC1N\xCD\u2026";
       try {
-        let c = code(), candidate = { code: c, place: p, station: s2, group: g, hourlyRate, categories, directions: JSON.parse(JSON.stringify(directions)), users: [], records: [], created: (/* @__PURE__ */ new Date()).toISOString(), ended: false }, token;
+        let c = code(), candidate = { code: c, place: p, station: s2, group: g, hourlyRate, presenceVerification:$('presenceVerification').checked, stationLatitude:null, stationLongitude:null, stationAccuracy:null, categories, directions: JSON.parse(JSON.stringify(directions)), users: [], records: [], created: (/* @__PURE__ */ new Date()).toISOString(), ended: false }, token;if(candidate.presenceVerification&&!window.trafficAccount)return alert('Pro ověřování přítomnosti se nejprve přihlaste k uživatelskému účtu.');if($('useStationLocation').checked){try{const pos=await currentLocation();candidate.stationLatitude=pos.latitude;candidate.stationLongitude=pos.longitude;candidate.stationAccuracy=pos.accuracy}catch(e){return alert('Poloha stanoviště nebyla získána. Zkontrolujte oprávnění k poloze a zkuste to znovu.')}}
         if (IS_HOSTED) {
           const result = await apiResult("/sessions", { method: "POST", body: JSON.stringify(candidate) });
           if (!result.ok) return alert("Vytvo\u0159en\xED spole\u010Dn\xE9ho s\u010D\xEDt\xE1n\xED nebylo potvrzeno. " + apiProblem(result));
@@ -2260,6 +2264,7 @@
     $("start").onclick = async () => {
       vib();
       if (!await requireStorage()) return;
+
       const n = $("userName").value.trim();
       if (!n) return alert("Zadejte sv\xE9 jm\xE9no.");
       if (selectedDir === null) return alert("Vyberte sm\u011Br s\u010D\xEDt\xE1n\xED.");
@@ -2269,6 +2274,7 @@
       const result = await apiResult("/sessions/" + current.code + "/users", { method: "POST", headers: { "X-Participant-Token": secret }, body: JSON.stringify(u2) });
       if (!result.ok) return alert("Pro zah\xE1jen\xED se nejprve p\u0159ipojte k internetu. " + apiProblem(result));
       Object.assign(u2, result.data);
+      if(current.presenceVerification){try{const position=await currentLocation();const loc=await sendLocation({code:current.code,id:uid},'join',position);if(!loc.ok){await apiResult('/sessions/'+current.code+'/users/'+uid+'/finish',{method:'POST',headers:{'X-Participant-Token':secret},body:'{}'});return alert('Ověření polohy při zahájení se nezdařilo. Povolte přístup k poloze a připojte se znovu.')}if(loc.data.finishedAt)return alert('Sčítání bylo ukončeno po opakovaném ověření polohy mimo stanoviště. Kontaktujte správce.');if(loc.data.location?.verificationStatus==='uncertain')alert('Poloha nebyla ověřena kvůli nepřesnosti GPS. Záznam proběhl bez automatického ukončení.');if(loc.data.location?.verificationStatus==='suspicious')alert('Poloha neodpovídá zadanému stanovišti. Správce obdrží upozornění. Zkontrolujte stanoviště a povolení GPS.')}catch(e){await apiResult('/sessions/'+current.code+'/users/'+uid+'/finish',{method:'POST',headers:{'X-Participant-Token':secret},body:'{}'});return alert('Poloha nebyla ověřena. Povolte přístup k poloze a zkuste zahájení znovu.')}}
       current.users.push(u2);
       await persist();
       sessionStorage.setItem("trafficUser", JSON.stringify({ id: uid, name: n, code: current.code }));
@@ -2533,8 +2539,27 @@
         const w = workSummary(current, u2);
         return `<div class="adminRow"><b>${esc(u2.name)}</b><div class="muted">${esc(u2.direction)} · ${w.finishedAt ? esc(w.reasonLabel) : Date.parse(current.serverNow) - Date.parse(u2.lastSeen || u2.joined) < 12e4 ? "Aktivní (průběžně)" : "Bez spojení (průběžně)"} · ${decimal(w.hours)} h · ${decimal(w.hourlyRate)} Kč/h · ${decimal(w.reward)} Kč</div></div>`;
       }).join("") : '<span class="muted">Zatím se nikdo nepřipojil.</span>';
+      refreshLocations().catch(()=>{});
     }
     ;
+    let liveMap=null,presentation=false;
+    async function refreshLocations(){
+      if(!current||!$("locationList"))return;
+      const code=current.code,r=await apiResult("/sessions/"+code+"/locations",{headers:{"X-Admin-Token":await adminToken(code)}});
+      if(!r.ok){$("locationList").textContent="Historie polohy je dostupná pouze správci tohoto sčítání.";return}
+      const d=r.data,latest=d.users.map(u=>({u,l:u.lastLocation})).filter(x=>x.l);
+      const intensity=trafficStats.summarize({...current,users:d.users}).total.intensity;$("locationStats").textContent="Aktivní sčítači: "+d.users.filter(x=>!x.finishedAt).length+" · Ověřeno na stanovišti: "+latest.filter(x=>x.l.verificationStatus==="ok").length+" · Vozidla: "+d.records+" · Průměrná intenzita: "+(intensity==null?"—":Math.round(intensity)+" voz/h");
+      $("locationList").innerHTML=d.users.map((u,i)=>{const l=u.lastLocation,name=presentation?"Sčítač "+(i+1):u.name,status=u.finishedAt?"Sčítání ukončeno":(u.lastVehicleAt&&Date.now()-Date.parse(u.lastVehicleAt)>=(Number(u.presenceChecksSinceVehicle||0)+1)*600000)?"Čeká na potvrzení přítomnosti":l?.verificationStatus==="uncertain"?"Poloha nejistá":l?.verificationStatus==="suspicious"?"Podezření na opuštění stanoviště":"Aktivní / poloha OK";return '<article class="adminRow"><b>'+esc(name)+'</b><div>'+esc(u.direction)+' · '+esc(status)+' · poslední vozidlo '+esc(u.lastVehicleAt||"—")+' · potvrzení '+esc(u.lastPresenceAt||"—")+' · kontrol '+Number(u.presenceChecksSinceVehicle||0)+(l?' · poslední ověřená poloha '+new Date(l.serverReceivedAt).toLocaleTimeString('cs-CZ')+' · ±'+Math.round(l.accuracy)+' m · '+(l.distanceFromStation==null?'—':Math.round(l.distanceFromStation)+' m'):' · poloha neověřena')+'</div></article>'}).join("")||'<p class="muted">Zatím nejsou sčítači.</p>';
+      if(typeof L!=="undefined"){
+        if(!liveMap){liveMap=L.map("liveMap").setView([50.0755,14.4378],12);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(liveMap)}
+        liveMap.eachLayer(x=>{if(x instanceof L.Marker)liveMap.removeLayer(x)});
+        if(d.station.latitude!=null)L.marker([d.station.latitude,d.station.longitude]).addTo(liveMap).bindPopup("Stanoviště");
+        latest.forEach(({u,l},i)=>{const due=u.lastVehicleAt&&Date.now()-Date.parse(u.lastVehicleAt)>=(Number(u.presenceChecksSinceVehicle||0)+1)*600000,key=u.finishedAt?"location-ended":l.verificationStatus==="suspicious"?"location-suspect":l.verificationStatus==="uncertain"?"location-uncertain":due?"location-wait":"location-ok",icon=L.divIcon({className:"",html:'<span class="locationDot '+key+'"></span>',iconSize:[18,18],iconAnchor:[9,9]}),m=L.marker([l.latitude,l.longitude],{icon}).addTo(liveMap);m.bindPopup("<b>"+esc(presentation?"Sčítač "+(i+1):u.name)+"</b><br>"+esc(u.direction)+"<br>"+esc(u.finishedAt?"Sčítání ukončeno":due?"Čeká na potvrzení přítomnosti":l.verificationStatus)+"<br>Poslední vozidlo: "+esc(u.lastVehicleAt||"—")+"<br>Poslední potvrzení: "+esc(u.lastPresenceAt||"—")+"<br>Ověřeno: "+new Date(l.serverReceivedAt).toLocaleTimeString("cs-CZ")+" · ±"+Math.round(l.accuracy)+" m<br>Vzdálenost: "+(l.distanceFromStation==null?"—":Math.round(l.distanceFromStation)+" m")+" · kontrol: "+Number(u.presenceChecksSinceVehicle||0))});
+        const points=latest.map(({l})=>[l.latitude,l.longitude]);if(d.station.latitude!=null)points.push([d.station.latitude,d.station.longitude]);if(points.length)liveMap.fitBounds(points,{padding:[30,30],maxZoom:16});
+      }
+    }
+    $("presentationMode").onclick=()=>{presentation=!presentation;$("locationPanel").requestFullscreen?.();$("locationList").style.fontSize=presentation?"1.2em":"";$("presentationMode").textContent=presentation?"Ukončit prezentační režim":"Prezentační režim";refreshLocations()};
+    setInterval(()=>{if(!$('admin').classList.contains('hidden'))refreshLocations().catch(()=>{})},15000);
     $("adminRefresh").onclick = async () => {
       vib();
       await syncCurrent();
@@ -2591,6 +2616,7 @@
       const messages = {
         manual: "Ukončili jste své sčítání.",
         inactivity: "Sčítání ukončeno z důvodu nepřítomnosti (20 minut bez aktivity).",
+        "location-mismatch": "Sčítání bylo ukončeno, protože opakované ověření polohy ukázalo, že se zařízení nenachází v prostoru stanoviště.",
         "session-ended": "Vaše sčítání ukončil správce ukončením celého sčítání."
       };
       $("finishUser").querySelector(".thanks > p").textContent = w.confirmed
@@ -2687,29 +2713,24 @@
       finally { finishing = null; }
     }
     $("presenceConfirm").onclick = async () => {
-      const u2 = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
-      if (!u2) return;
-      const button = $("presenceConfirm");
-      if (button.disabled) return;
-      button.disabled = true;
+      const u2=JSON.parse(sessionStorage.getItem("trafficUser")||"null"); if(!u2)return;
+      const button=$("presenceConfirm");if(button.disabled)return;button.disabled=true;
       try {
-        const pr = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/presence", {
-          method: "POST",
-          headers: { "X-Participant-Token": await participantToken(u2.code, u2.id) },
-          body: "{}"
-        });
-        if (!pr.ok) return alert("Potvrzení přítomnosti se nepodařilo odeslat. " + apiProblem(pr));
-        lastActivityAt = Date.now();
-        presencePromptFor = 0;
-        $("presenceBar").classList.add("hidden");
-        await mutateLocal(async () => {
-          const active = JSON.parse(await storage.getItem("trafficActive") || "null");
-          if (active && active.code === u2.code && active.id === u2.id) {
-            active.lastActivityAt = lastActivityAt;
-            await storage.setItem("trafficActive", JSON.stringify(active));
-          }
-        });
-      } finally { button.disabled = false; }
+        const advanced=!!current?.presenceVerification;let position=null;
+        if(advanced){try{position=await currentLocation()}catch(e){$("presenceStatus").textContent="Poloha nebyla ověřena. Povolte oprávnění k poloze a opakujte kontrolu.";return}}
+        const pr=await apiResult("/sessions/"+u2.code+"/users/"+u2.id+"/presence",{method:"POST",headers:{"X-Participant-Token":await participantToken(u2.code,u2.id)},body:"{}"});
+        if(!pr.ok)return alert("Potvrzení přítomnosti se nepodařilo odeslat. "+apiProblem(pr));
+        if(advanced){
+          if(pr.data.reauthRequired){const email=prompt("Po třech kontrolách bez zaznamenaného vozidla se znovu přihlaste. E-mail účtu:");if(!email)return;const password=prompt("Zadejte heslo účtu. Heslo se neukládá:");if(!password)return;const login=await apiResult("/auth/login",{method:"POST",body:JSON.stringify({email,password})});if(!login.ok)return alert("Přihlášení se nezdařilo. Sčítání zůstává pozastavené.")}
+          const loc=await sendLocation(u2,pr.data.reauthRequired?"reauth":"presence-check",position);
+          if(!loc.ok)return alert("Poloha nebyla ověřena. Kontrola zůstává nedokončená. "+apiProblem(loc));
+          if(loc.data.finishedAt){await showServerFinish({finishedAt:loc.data.finishedAt,finishReason:loc.data.finishReason},u2);return}
+          if(loc.data.warning){$("presenceStatus").textContent="Podezřelá poloha. Správce byl upozorněn; proveďte další ověření.";return}
+          if(pr.data.reauthRequired&&loc.data.reauthRequired)return alert("Opětovné ověření nebylo dokončeno. Zkontrolujte účet a polohu.");
+        }
+        lastActivityAt=Date.now();presencePromptFor=0;$("presenceBar").classList.add("hidden");
+        await mutateLocal(async()=>{const active=JSON.parse(await storage.getItem("trafficActive")||"null");if(active&&active.code===u2.code&&active.id===u2.id){active.lastActivityAt=lastActivityAt;await storage.setItem("trafficActive",JSON.stringify(active))}});
+      } finally {button.disabled=false}
     };
     let maintenanceRunning = false;
     setInterval(async () => {
@@ -2848,7 +2869,7 @@
           const r = p.native ? await CapacitorHttp.request({ url: apiBase + "/health", method: "GET", responseType: "json", connectTimeout: 8e3, readTimeout: 8e3, disableRedirects: true }) : await fetch(apiBase + "/health", { cache: "no-store" });
           const d = p.native ? (typeof r.data === "string" ? JSON.parse(r.data) : r.data) : await r.json();
           const statusCode = p.native ? r.status : r.status;
-          if (statusCode !== 200 || d.app !== "scitani-dopravy" || d.version !== "1.5.0") {
+          if (statusCode !== 200 || d.app !== "scitani-dopravy" || d.version !== "1.6.0") {
             status.textContent = "Nov\xE1 verze serveru je\u0161t\u011B nen\xED spu\u0161t\u011Bn\xE1. Pou\u017Eijte zat\xEDm testovac\xED aplikaci.";
             return false;
           }
