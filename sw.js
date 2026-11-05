@@ -1,9 +1,9 @@
-const CACHE='traffic-v160-presence-location-20261105-osmtiles';
+const CACHE='traffic-v160-presence-location-20261105-sameoriginmap';
 const SHELL=['/','/index.html','/app.bundle.js','/work-summary.js','/traffic-stats.js','/modern.css','/school.css','/manifest.json','/icon-192.png','/icon-512.png','/brand/school-logo.png','/brand/school-pattern.png','/brand/traffic-study.png','/brand/Roboto.ttf','/leaflet/leaflet.js','/leaflet/leaflet.css','/leaflet/LICENSE','/leaflet/images/marker-icon.png','/leaflet/images/marker-icon-2x.png','/leaflet/images/marker-shadow.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting()});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{
-  if(e.request.method!=='GET'||new URL(e.request.url).pathname.startsWith('/api/')) return;
+  const pathname=new URL(e.request.url).pathname;if(e.request.method!=='GET'||pathname.startsWith('/api/')||pathname.startsWith('/map-tiles/')) return;
   e.respondWith(fetch(e.request).then(r=>{let copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r}).catch(()=>caches.match(e.request).then(r=>r||caches.match('/index.html'))));
 });
 self.addEventListener('message',e=>{if(e.data&&e.data.type==='SKIP_WAITING')self.skipWaiting()});
