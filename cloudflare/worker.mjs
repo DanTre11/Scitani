@@ -71,13 +71,14 @@ var Accounts = class {
     await this.audit(actor, "account-created", id);
     return safe(await q(this.db, "SELECT * FROM accounts WHERE id=?", id).first());
   }
-  async login(x, req) {
+  async login(x, req, expectedAccountId = null) {
     const email = String(x.email || "").trim().toLowerCase();
     await this.rate("login-ip:" + hash(req.headers.get("cf-connecting-ip") || "test"), 40);
     await this.rate("login-email:" + hash(email), 10);
     const a = await q(this.db, "SELECT * FROM accounts WHERE email=?", email).first();
     const ok = await verify(x.password, a?.password || "0".repeat(32) + ":" + "00".repeat(64));
     if (!a || !a.active || !ok) fail(401, "invalid_credentials");
+    if (expectedAccountId && a.id !== expectedAccountId) fail(403, "wrong_account");
     await this.logout(req);
     const t = token();
     await q(this.db, "INSERT INTO logins(hash,account_id,expires) SELECT ?,id,? FROM accounts WHERE id=? AND active=1 AND password=?", hash(t), Date.now() + 2592e6, a.id, a.password).run();
@@ -150,8 +151,11 @@ async function settleSession(db, c, now = new Date().toISOString()) {
       WHERE code=? AND finished_at IS NULL AND EXISTS(SELECT 1 FROM sessions s WHERE s.code=users.code AND s.ended=1 AND s.ended_at IS NOT NULL)`, c, c)
   ]);
 }
+function needsReauth(session, user) {
+  return !!session.presenceVerification && (user.reauthRequired === true || Number(user.presenceChecksSinceVehicle || 0) >= 3);
+}
 function publicUser(u) {
-  const out={...JSON.parse(u.data),finishedAt:u.finished_at || null,lastSeen:u.last_seen};delete out.accountId;return out;
+  const out={...JSON.parse(u.data),finishedAt:u.finished_at || null,lastSeen:u.last_seen};delete out.accountId;delete out.reauthProofHash;delete out.reauthProofExpiresAt;delete out.reauthChallenge;return out;
 }
 async function sessionView(db, c, paged = true) {
   await settleSession(db, c);
@@ -330,24 +334,47 @@ async function handle(req, env) {
     manage(a,s,req);
     await q(db,"CREATE TABLE IF NOT EXISTS location_events(code TEXT,user_id TEXT,data TEXT,received_at TEXT)").run();
     const [rows,people]=await Promise.all([q(db,"SELECT data FROM location_events WHERE code=? ORDER BY received_at",c).all(),q(db,"SELECT data,finished_at,last_seen FROM users WHERE code=? ORDER BY id",c).all()]);
-    const history=rows.results.map(x=>JSON.parse(x.data)),users=people.results.map(x=>{const u={...JSON.parse(x.data),finishedAt:x.finished_at||null,lastSeen:x.last_seen};delete u.accountId;u.lastLocation=history.filter(e=>e.userId===u.id).at(-1)||null;return u});
+    const history=rows.results.map(x=>JSON.parse(x.data)),users=people.results.map(x=>{const u={...JSON.parse(x.data),finishedAt:x.finished_at||null,lastSeen:x.last_seen};delete u.accountId;delete u.reauthProofHash;delete u.reauthProofExpiresAt;delete u.reauthChallenge;u.lastLocation=history.filter(e=>e.userId===u.id).at(-1)||null;return u});
     return json({code:c,station:{latitude:data.stationLatitude??null,longitude:data.stationLongitude??null,accuracy:data.stationAccuracy??null,fallback:!!data.stationLocationFallback},history,users,records:(await q(db,"SELECT COUNT(*) n FROM records WHERE code=?",c).first()).n,serverNow:new Date().toISOString()});
+  }
+  if (req.method === "POST" && p[3] === "users" && p.length === 6 && p[5] === "reauth") {
+    let u = await member(db, req, c, p[4]), ud = JSON.parse(u.data);
+    if (s.ended || u.finished_at) fail(409, "finished");
+    if (!needsReauth(data, ud)) fail(409, "reauth_not_due");
+    if (!ud.accountId) fail(403, "wrong_account");
+    // Upgrade an already-due participant from an older release without unlocking it.
+    await q(db, "UPDATE users SET data=json_set(data,'$.reauthRequired',json('true'),'$.reauthChallenge',?) WHERE code=? AND id=? AND json_extract(data,'$.reauthChallenge') IS NULL", token(), c, u.id).run();
+    u = await member(db, req, c, p[4]); ud = JSON.parse(u.data);
+    const login = await accounts.login(await body(req), req, ud.accountId);
+    const proof = token();
+    const result = await q(db, "UPDATE users SET data=json_set(data,'$.reauthProofHash',?,'$.reauthProofExpiresAt',?) WHERE code=? AND id=? AND finished_at IS NULL AND json_extract(data,'$.reauthRequired')=1 AND json_extract(data,'$.reauthChallenge')=? AND EXISTS(SELECT 1 FROM sessions WHERE code=? AND ended=0)", hash(proof), Date.now()+300000, c, u.id, ud.reauthChallenge, c).run();
+    if (!result.meta.changes) fail(409, "reauth_not_due");
+    return json({ok:true,reauthRequired:true,reauthProof:proof},200,{"Set-Cookie":login.cookie});
   }
   if (req.method === "POST" && p[3] === "users" && p.length === 6 && p[5] === "location") {
     const u=await member(db,req,c,p[4]); if(s.ended||u.finished_at)fail(409,"finished"); const x=await body(req),ud=JSON.parse(u.data);
     if(![x.latitude,x.longitude,x.accuracy].every(Number.isFinite)||Math.abs(x.latitude)>90||Math.abs(x.longitude)>180||x.accuracy<=0)fail(400,"invalid_location");
     if(!["join","presence-check","reauth","manual-check"].includes(x.eventType))fail(400,"invalid_event_type");
-    if(x.eventType==="reauth"){if(!a||!ud.accountId||a.id!==ud.accountId)fail(401,"reauth_required");if(Number(ud.presenceChecksSinceVehicle||0)<3)fail(409,"reauth_not_due")}
+    if(x.eventType==="reauth"){
+      if(!needsReauth(data,ud))fail(409,"reauth_not_due");
+      if(!a||!ud.accountId||a.id!==ud.accountId||typeof x.reauthProof!=="string"||hash(x.reauthProof)!==ud.reauthProofHash||Number(ud.reauthProofExpiresAt)<=Date.now())fail(401,"reauth_required");
+    }
     let station=data.stationLatitude==null?null:{latitude:data.stationLatitude,longitude:data.stationLongitude};
     const dist=(p1,p2)=>{const r=n=>n*Math.PI/180,dl=r(p2.latitude-p1.latitude),dn=r(p2.longitude-p1.longitude),h=Math.sin(dl/2)**2+Math.cos(r(p1.latitude))*Math.cos(r(p2.latitude))*Math.sin(dn/2)**2;return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h))};
     let distance=station?dist(station,x):null,status="uncertain",quality=false,radius=Number(data.locationRadiusMeters)||250;
     if(x.accuracy<=100){if(!station){station={latitude:x.latitude,longitude:x.longitude};distance=0;status="ok";quality=true;data.stationLatitude=x.latitude;data.stationLongitude=x.longitude;data.stationAccuracy=x.accuracy;data.stationLocationFallback=true;await q(db,"UPDATE sessions SET data=? WHERE code=?",JSON.stringify(data),c).run()}else if(distance+x.accuracy<=radius){status="ok";quality=true}else if(distance-x.accuracy>radius){status="suspicious";quality=true}}
     const now=new Date().toISOString(),entry={userId:u.id,sessionCode:c,latitude:x.latitude,longitude:x.longitude,accuracy:x.accuracy,capturedAt:now,serverReceivedAt:now,eventType:x.eventType,distanceFromStation:distance,verificationStatus:status};
-    await q(db,"CREATE TABLE IF NOT EXISTS location_events(code TEXT,user_id TEXT,data TEXT,received_at TEXT)").run();await q(db,"INSERT INTO location_events(code,user_id,data,received_at) VALUES(?,?,?,?)",c,u.id,JSON.stringify(entry),now).run();ud.lastLocationStatus=status;
-    if(quality&&status==="suspicious"){ud.locationMismatchCount=Number(ud.locationMismatchCount||0)+1;if(ud.locationMismatchCount>=2){await q(db,"UPDATE users SET finished_at=?,data=? WHERE code=? AND id=?",now,JSON.stringify({...ud,finishReason:"location-mismatch"}),c,u.id).run();ud.finishedAt=now;ud.finishReason="location-mismatch"}}else if(quality)ud.locationMismatchCount=0;
-    if(x.eventType==="reauth"&&quality&&status==="ok"){ud.presenceChecksSinceVehicle=0;ud.lastActivity=now;ud.lastPresenceAt=now;ud.locationMismatchCount=0;await q(db,"UPDATE users SET last_seen=?,data=? WHERE code=? AND id=?",now,JSON.stringify(ud),c,u.id).run()}
-    else await q(db,"UPDATE users SET data=? WHERE code=? AND id=?",JSON.stringify(ud),c,u.id).run();
-    return json({ok:true,location:entry,verificationStatus:status,warning:status==="suspicious",finishedAt:ud.finishedAt||null,finishReason:ud.finishReason||null,reauthRequired:!!data.presenceVerification&&Number(ud.presenceChecksSinceVehicle||0)>=3});
+    await q(db,"CREATE TABLE IF NOT EXISTS location_events(code TEXT,user_id TEXT,data TEXT,received_at TEXT)").run();
+    const statements=[
+      q(db,"INSERT INTO location_events(code,user_id,data,received_at) VALUES(?,?,?,?)",c,u.id,JSON.stringify(entry),now),
+      q(db,"UPDATE users SET data=json_set(data,'$.lastLocationStatus',?,'$.locationMismatchCount',CASE WHEN ?='suspicious' THEN COALESCE(json_extract(data,'$.locationMismatchCount'),0)+1 WHEN ?='ok' THEN 0 ELSE COALESCE(json_extract(data,'$.locationMismatchCount'),0) END) WHERE code=? AND id=? AND finished_at IS NULL",status,status,status,c,u.id),
+      q(db,"UPDATE users SET finished_at=?,data=json_set(data,'$.finishReason','location-mismatch') WHERE code=? AND id=? AND finished_at IS NULL AND COALESCE(json_extract(data,'$.locationMismatchCount'),0)>=2",now,c,u.id)
+    ];
+    if(x.eventType==="reauth"&&quality&&status==="ok") statements.push(q(db,"UPDATE users SET last_seen=?,data=json_remove(json_set(data,'$.reauthRequired',json('false'),'$.presenceChecksSinceVehicle',0,'$.presenceCycleAt',?,'$.lastActivity',?,'$.lastPresenceAt',?,'$.locationMismatchCount',0),'$.reauthProofHash','$.reauthProofExpiresAt','$.reauthChallenge') WHERE code=? AND id=? AND finished_at IS NULL AND json_extract(data,'$.reauthRequired')=1 AND json_extract(data,'$.reauthProofHash')=? AND json_extract(data,'$.reauthProofExpiresAt')>? AND EXISTS(SELECT 1 FROM sessions WHERE code=? AND ended=0)",now,now,now,now,c,u.id,hash(x.reauthProof),Date.now(),c));
+    const results=await db.batch(statements);
+    if(statements.length===4&&!results[3].meta.changes)fail(409,"reauth_required");
+    const fresh=await member(db,req,c,u.id), updated=JSON.parse(fresh.data);
+    return json({ok:true,location:entry,verificationStatus:status,warning:status==="suspicious",finishedAt:fresh.finished_at||null,finishReason:updated.finishReason||null,reauthRequired:needsReauth(data,updated)});
   }
   if (req.method === "GET" && p[3] === "records" && p.length === 4) {
     const after = url.searchParams.get("after") || "";
@@ -368,7 +395,7 @@ async function handle(req, env) {
     }
     if (s.ended) fail(409, "ended");
     if (data.presenceVerification && !a) fail(401, "login_required_for_location");
-    const now = new Date().toISOString(), u = { id: x.id, name: x.name, direction: x.direction, joined: now, lastActivity: now, lastVehicleAt: now, lastPresenceAt: null, presenceChecksSinceVehicle: 0, locationMismatchCount: 0, accountId: a?.id || null };
+    const now = new Date().toISOString(), u = { id: x.id, name: x.name, direction: x.direction, joined: now, lastActivity: now, lastVehicleAt: now, lastPresenceAt: null, presenceChecksSinceVehicle: 0, reauthRequired: false, presenceCycleAt: now, locationMismatchCount: 0, accountId: a?.id || null };
     const result = await q(db, "INSERT INTO users(code,id,data,token_hash,account_id,last_seen) SELECT code,?,?,?,?,? FROM sessions WHERE code=? AND ended=0 ON CONFLICT(code,id) DO NOTHING", x.id, JSON.stringify(u), hash(t), a?.id || null, now, c).run();
     if (!result.meta.changes) {
       await member(db, req, c, x.id);
@@ -384,9 +411,11 @@ async function handle(req, env) {
     u = await member(db, req, c, p[4]);
     if (p[5] === "presence") {
       if (s.ended || u.finished_at) fail(409, "finished");
-      const result = await q(db, "UPDATE users SET last_seen=?,data=json_set(data,'$.lastActivity',?,'$.presenceConfirmedAt',?) WHERE code=? AND id=? AND finished_at IS NULL AND EXISTS(SELECT 1 FROM sessions WHERE code=? AND ended=0)", now, now, now, c, u.id, c).run();
-      if (!result.meta.changes) fail(409, "finished");
-      const ud=JSON.parse(u.data);ud.lastActivity=now;ud.lastPresenceAt=now;ud.presenceConfirmedAt=now;ud.presenceChecksSinceVehicle=Number(ud.presenceChecksSinceVehicle||0)+1;await q(db,"UPDATE users SET last_seen=?,data=? WHERE code=? AND id=?",now,JSON.stringify(ud),c,u.id).run();return json({ok:true,lastActivity:now,presenceChecksSinceVehicle:ud.presenceChecksSinceVehicle,reauthRequired:!!data.presenceVerification&&ud.presenceChecksSinceVehicle>=3});
+      if(needsReauth(data,JSON.parse(u.data)))fail(409,"reauth_required");
+      const result = await q(db, "UPDATE users SET last_seen=?,data=json_set(data,'$.lastActivity',?,'$.lastPresenceAt',?,'$.presenceConfirmedAt',?,'$.presenceChecksSinceVehicle',COALESCE(json_extract(data,'$.presenceChecksSinceVehicle'),0)+1,'$.reauthRequired',json(CASE WHEN ? AND COALESCE(json_extract(data,'$.presenceChecksSinceVehicle'),0)>=2 THEN 'true' ELSE 'false' END),'$.reauthChallenge',CASE WHEN ? AND COALESCE(json_extract(data,'$.presenceChecksSinceVehicle'),0)>=2 THEN ? ELSE json_extract(data,'$.reauthChallenge') END) WHERE code=? AND id=? AND finished_at IS NULL AND (?=0 OR (COALESCE(json_extract(data,'$.reauthRequired'),0)=0 AND COALESCE(json_extract(data,'$.presenceChecksSinceVehicle'),0)<3)) AND EXISTS(SELECT 1 FROM sessions WHERE code=? AND ended=0)",now,now,now,now,Number(!!data.presenceVerification),Number(!!data.presenceVerification),token(),c,u.id,Number(!!data.presenceVerification),c).run();
+      if (!result.meta.changes) fail(409, "reauth_required");
+      const ud=JSON.parse((await member(db,req,c,u.id)).data);
+      return json({ok:true,lastActivity:now,presenceChecksSinceVehicle:ud.presenceChecksSinceVehicle,reauthRequired:needsReauth(data,ud)});
     }
     if (p[5] === "finish") {
       await q(db, "UPDATE users SET last_seen=CASE WHEN finished_at IS NULL THEN ? ELSE last_seen END,data=CASE WHEN finished_at IS NULL THEN json_set(data,'$.finishReason','manual') ELSE data END,finished_at=COALESCE(finished_at,?) WHERE code=? AND id=?", now, now, c, u.id).run();
@@ -396,7 +425,7 @@ async function handle(req, env) {
     u = await q(db, `SELECT *,${activitySql} AS activity_at FROM users WHERE code=? AND id=?`, c, u.id).first();
     const idleMs = Math.max(0, Date.now() - Date.parse(u.activity_at || now));
     const fresh = await getSession(db, c);
-    return json({ok:true,ended:!!fresh.ended,autoFinished:!!u.finished_at && JSON.parse(u.data).finishReason === "inactivity",finishedAt:u.finished_at,finishReason:JSON.parse(u.data).finishReason || null,user:publicUser(u),idleMs,presenceDue:!u.finished_at && Date.now()-Date.parse(JSON.parse(u.data).lastVehicleAt||JSON.parse(u.data).joined)>=(Number(JSON.parse(u.data).presenceChecksSinceVehicle||0)+1)*10*60*1000});
+    return json({ok:true,ended:!!fresh.ended,autoFinished:!!u.finished_at && JSON.parse(u.data).finishReason === "inactivity",finishedAt:u.finished_at,finishReason:JSON.parse(u.data).finishReason || null,user:publicUser(u),idleMs,reauthRequired:needsReauth(data,JSON.parse(u.data)),presenceDue:!u.finished_at && Date.now()-Date.parse(JSON.parse(u.data).presenceCycleAt||JSON.parse(u.data).lastVehicleAt||JSON.parse(u.data).joined)>=(Number(JSON.parse(u.data).presenceChecksSinceVehicle||0)+1)*10*60*1000});
   }
   if (req.method === "POST" && p[3] === "records" && p.length === 4) {
     const x = await body(req);
@@ -408,6 +437,7 @@ async function handle(req, env) {
       if (prior.user_id !== u.id) fail(409, "duplicate_id");
       return json({ ok: true });
     }
+    if(needsReauth(data,ud))fail(409,"reauth_required");
     const t = Date.parse(x.time);
     if (!Number.isFinite(t) || t > Date.now() + 6e4) fail(400, "invalid_time");
     const dir = data.directions.find((d) => d.name === ud.direction), cat = trafficStats.category(x);
@@ -415,11 +445,12 @@ async function handle(req, env) {
     if (typeof x.movement !== "string" || (dir.moves.length ? !dir.moves.includes(x.movement) : x.movement !== "")) fail(400, "invalid_movement");
     const time = new Date(t).toISOString(), r = { id: x.id, time, userId: u.id, user: ud.name, direction: ud.direction, movement: x.movement, category: cat.label, categoryId: cat.id, station: data.station, group: data.group };
     const receivedAt = new Date().toISOString();
-    const results = await db.batch([q(db, `INSERT INTO records(code,id,data,time,user_id) SELECT s.code,?,?,?,u.id FROM sessions s JOIN users u ON u.code=s.code WHERE s.code=? AND u.id=? AND (s.ended=0 OR ?<=s.ended_at) AND (u.finished_at IS NULL OR ?<=u.finished_at) ON CONFLICT(code,id) DO NOTHING`, x.id, JSON.stringify(r), time, c, u.id, time, time), q(db, "UPDATE users SET last_seen=?,data=json_set(data,'$.lastActivity',?,'$.lastVehicleAt',?,'$.presenceChecksSinceVehicle',0,'$.locationMismatchCount',0) WHERE code=? AND id=? AND finished_at IS NULL AND EXISTS(SELECT 1 FROM records WHERE code=? AND id=? AND user_id=?)", receivedAt, receivedAt, receivedAt, c, u.id, c, x.id, u.id)]);
+    const results = await db.batch([q(db, `INSERT INTO records(code,id,data,time,user_id) SELECT s.code,?,?,?,u.id FROM sessions s JOIN users u ON u.code=s.code WHERE s.code=? AND u.id=? AND (s.ended=0 OR ?<=s.ended_at) AND (u.finished_at IS NULL OR ?<=u.finished_at) AND (COALESCE(json_extract(s.data,'$.presenceVerification'),0)=0 OR (COALESCE(json_extract(u.data,'$.reauthRequired'),0)=0 AND COALESCE(json_extract(u.data,'$.presenceChecksSinceVehicle'),0)<3)) ON CONFLICT(code,id) DO NOTHING`, x.id, JSON.stringify(r), time, c, u.id, time, time), q(db, "UPDATE users SET last_seen=?,data=json_set(data,'$.lastActivity',?,'$.lastVehicleAt',?,'$.presenceCycleAt',?,'$.presenceChecksSinceVehicle',0,'$.locationMismatchCount',0) WHERE code=? AND id=? AND finished_at IS NULL AND EXISTS(SELECT 1 FROM sessions s WHERE s.code=users.code AND (COALESCE(json_extract(s.data,'$.presenceVerification'),0)=0 OR (COALESCE(json_extract(users.data,'$.reauthRequired'),0)=0 AND COALESCE(json_extract(users.data,'$.presenceChecksSinceVehicle'),0)<3))) AND EXISTS(SELECT 1 FROM records WHERE code=? AND id=? AND user_id=?)", receivedAt, receivedAt, receivedAt, receivedAt, c, u.id, c, x.id, u.id)]);
     if (!results[0].meta.changes) {
       const duplicate = await q(db, "SELECT user_id FROM records WHERE code=? AND id=?", c, x.id).first();
       if (duplicate?.user_id === u.id) return json({ ok: true });
       if (duplicate) fail(409, "duplicate_id");
+      if(needsReauth(data,JSON.parse((await member(db,req,c,u.id)).data)))fail(409,"reauth_required");
       fail(409, "ended");
     }
     return json(r, 201);
@@ -463,4 +494,3 @@ var worker_default = { async fetch(req, env) {
 export {
   worker_default as default
 };
-

@@ -1870,12 +1870,13 @@
     function activeCats(direction) { return (direction ? trafficStats.forDirection(current,direction) : trafficStats.categories(current)).map(c=>c.icon+' '+c.label); }
     function selectedCategories(){return [...document.querySelectorAll('[data-category]:checked')].map(x=>x.dataset.category);}
 
-    let directions = [{ name: "", moves: [] }, { name: "", moves: [] }], current = null, records = [], selectedDir = null, started = null, timer = null, isCreator = false, lastActivityAt = Date.now(), presencePromptFor = 0, finishArmed = false;
+    let directions = [{ name: "", moves: [] }, { name: "", moves: [] }], current = null, records = [], selectedDir = null, started = null, timer = null, isCreator = false, lastActivityAt = Date.now(), presencePromptFor = 0, finishArmed = false, reauthLocked = false, presenceBusy = false;
     const $ = (id) => document.getElementById(id), screens = ["home", "setup", "created", "join", "selectScreen", "admin", "adminEndConfirm", "finishUser", "finishAdmin", "count"];
     function show(id) {
       screens.forEach((x) => $(x).classList.toggle("hidden", x !== id));
       $("bottom").classList.toggle("hidden", id !== "count");
       if (id !== "count") $("presenceBar")?.classList.add("hidden");
+      else paintReauthLock();
       if (id === "admin") setTimeout(() => liveMap?.invalidateSize(), 0);
     }
     ;
@@ -2006,7 +2007,38 @@
       b.textContent = q ? "\u25CF Online \xB7 " + q + " z\xE1znam\u016F \u010Dek\xE1 na synchronizaci" : "\u25CF Online \xB7 v\u0161e synchronizov\xE1no";
     }
     function currentLocation(){return new Promise((resolve,reject)=>{if(!navigator.geolocation)return reject(Error('location_unavailable'));navigator.geolocation.getCurrentPosition(pos=>resolve({latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy}),reject,{enableHighAccuracy:true,timeout:15000,maximumAge:0})})}
-    async function sendLocation(user,eventType,position){let result=await apiResult('/sessions/'+user.code+'/users/'+user.id+'/location',{method:'POST',headers:{'X-Participant-Token':await participantToken(user.code,user.id)},body:JSON.stringify({...position,eventType})});if(result.ok&&result.data.warning){alert('Poloha vypadá mimo stanoviště. Zkontrolujte oprávnění GPS a proveďte nové měření.');try{const retry=await currentLocation();result=await apiResult('/sessions/'+user.code+'/users/'+user.id+'/location',{method:'POST',headers:{'X-Participant-Token':await participantToken(user.code,user.id)},body:JSON.stringify({...retry,eventType:eventType==='reauth'?'reauth':'manual-check'})})}catch(e){}}return result}
+    async function sendLocation(user,eventType,position,reauthProof){let result=await apiResult('/sessions/'+user.code+'/users/'+user.id+'/location',{method:'POST',headers:{'X-Participant-Token':await participantToken(user.code,user.id)},body:JSON.stringify({...position,eventType,reauthProof})});if(result.ok&&result.data.warning){alert('Poloha vypadá mimo stanoviště. Zkontrolujte oprávnění GPS a proveďte nové měření.');try{const retry=await currentLocation();result=await apiResult('/sessions/'+user.code+'/users/'+user.id+'/location',{method:'POST',headers:{'X-Participant-Token':await participantToken(user.code,user.id)},body:JSON.stringify({...retry,eventType:eventType==='reauth'?'reauth':'manual-check',reauthProof})})}catch(e){}}return result}
+    function paintReauthLock() {
+      document.querySelectorAll(".vehicle").forEach(b => b.disabled = reauthLocked || presenceBusy);
+      const bar = $("presenceBar");
+      bar.querySelector("strong").textContent = reauthLocked ? "🔒 Sčítání pozastaveno" : "⚠️ Jste stále na stanovišti?";
+      bar.querySelector("span").textContent = reauthLocked ? "Pro pokračování proveďte opětovné ověření účtu a polohy." : "10 minut nebylo zaznamenáno žádné vozidlo.";
+      $("presenceConfirm").textContent = reauthLocked ? "OVĚŘIT ÚČET A POLOHU" : "JSEM STÁLE NA STANOVIŠTI";
+      if (reauthLocked && !$("count").classList.contains("hidden")) bar.classList.remove("hidden");
+    }
+    async function setReauthLock(identity, required) {
+      const mine=JSON.parse(sessionStorage.getItem("trafficUser")||"null");
+      if (!mine || mine.code!==identity.code || mine.id!==identity.id) return;
+      reauthLocked=required; paintReauthLock();
+      await mutateLocal(async()=>{
+        const sessions=await db(), saved=sessions[identity.code];
+        if(saved){const u=saved.users.find(u=>u.id===identity.id);if(u){u.reauthRequired=required;if(!required)u.presenceChecksSinceVehicle=0;}await storage.setItem("trafficSessions",JSON.stringify(sessions));}
+        if(current?.code===identity.code){const u=current.users.find(u=>u.id===identity.id);if(u){u.reauthRequired=required;if(!required)u.presenceChecksSinceVehicle=0;}}
+        const active=JSON.parse(await storage.getItem("trafficActive")||"null");
+        if(active && active.code===identity.code && active.id===identity.id){active.reauthRequired=required;await storage.setItem("trafficActive",JSON.stringify(active));}
+      });
+    }
+    function reauthCredentials() {
+      return new Promise(resolve=>{
+        const dialog=document.createElement("dialog");
+        dialog.innerHTML='<form><h2>Opětovné ověření účtu</h2><p>Po třech kontrolách bez vozidla ověřte účet použitý při zahájení sčítání a polohu.</p><label>E-mail<input name="email" type="email" autocomplete="username" required></label><label>Heslo<input name="password" type="password" autocomplete="current-password" required></label><p>Heslo se v aplikaci neukládá.</p><button type="submit" class="btn">OVĚŘIT</button><button type="button" class="btn" data-cancel>ZRUŠIT</button></form>';
+        const finish=value=>{dialog.querySelector('input[type="password"]').value='';dialog.close();dialog.remove();resolve(value)};
+        dialog.querySelector("form").onsubmit=e=>{e.preventDefault();const form=e.currentTarget;finish({email:form.elements.email.value.trim(),password:form.elements.password.value})};
+        dialog.querySelector('[data-cancel]').onclick=()=>finish(null);
+        dialog.oncancel=e=>{e.preventDefault();finish(null)};
+        document.body.append(dialog);dialog.showModal();dialog.querySelector('input').focus();
+      });
+    }
     async function participantToken(code2, id) {
       return await storage.getItem("trafficParticipant:" + code2 + ":" + id) || "";
     }
@@ -2104,8 +2136,10 @@
           const batch = JSON.parse(await storage.getItem("trafficQueue") || "[]");
           if (!batch.length) break;
           let failed = false;
+          const blocked = new Set();
           for (const x of batch) {
             const uid = x.record.userId;
+            if(blocked.has(x.code+":"+uid)){failed=true;continue;}
             const local = (await db())[x.code], user = local == null ? void 0 : local.users.find((u2) => u2.id === uid);
             if (user) {
               const joined = await apiResult("/sessions/" + x.code + "/users", { method: "POST", headers: { "X-Participant-Token": (await participantToken(x.code, uid)) }, body: JSON.stringify(user) });
@@ -2118,6 +2152,7 @@
             const result = x.action === "delete" ? await apiResult("/sessions/" + x.code + "/records/" + encodeURIComponent(x.record.id), { method: "DELETE", headers: { "X-User-ID": x.record.userId || "", "X-Participant-Token": (await participantToken(x.code, x.record.userId)) } }) : await apiResult("/sessions/" + x.code + "/records", { method: "POST", headers: { "X-Participant-Token": (await participantToken(x.code, x.record.userId)) }, body: JSON.stringify(x.record) });
             const ok = result.ok || x.action === "delete" && result.status === 404;
             if (!ok) {
+              if (result.data?.error === "reauth_required") {blocked.add(x.code+":"+uid);await setReauthLock({code:x.code,id:uid},true);}
               syncProblem = result;
               failed = true;
               continue;
@@ -2284,6 +2319,7 @@
       lastActivityAt = started;
       presencePromptFor = 0;
       finishArmed = false;
+      reauthLocked = false;
       $("presenceBar")?.classList.add("hidden");
       $("finish").textContent = "Ukončit moje sčítání";
       await storage.removeItem("trafficFinal");
@@ -2317,6 +2353,7 @@
           let b = document.createElement("button");
           b.className = "btn vehicle";
           b.textContent = d.mode === "tram" ? "TRAMVAJ" : c;
+          b.disabled = reauthLocked || presenceBusy;
           b.onclick = () => add(ci, m);
           g.appendChild(b);
         });
@@ -2326,13 +2363,14 @@
     }
     ;
     async function add(ci, m) {
+      if (reauthLocked || presenceBusy) {paintReauthLock();return;}
       vib();
       lastActivityAt = Date.now();
       presencePromptFor = 0;
       $("presenceBar")?.classList.add("hidden");
       await mutateLocal(async () => {
         const activeNow = JSON.parse(await storage.getItem("trafficActive") || "null");
-        if (!activeNow) return;
+        if (!activeNow || activeNow.reauthRequired || reauthLocked || presenceBusy) return;
         if (activeNow) { activeNow.lastActivityAt = lastActivityAt; await storage.setItem("trafficActive", JSON.stringify(activeNow)); }
         const u2 = JSON.parse(sessionStorage.getItem("trafficUser"));
         const r = { id: recordId(), time: (/* @__PURE__ */ new Date()).toISOString(), userId: u2.id, user: u2.name, direction: current.directions[selectedDir].name, movement: m || "", category: activeCats(current.directions[selectedDir])[ci].replace(/^.. /, "") };
@@ -2550,13 +2588,13 @@
       if(!r.ok){$("locationList").textContent="Historie polohy je dostupná pouze správci tohoto sčítání.";return}
       const d=r.data,latest=d.users.map(u=>({u,l:u.lastLocation})).filter(x=>x.l);
       const intensity=trafficStats.summarize({...current,users:d.users}).total.intensity;$("locationStats").textContent="Aktivní sčítači: "+d.users.filter(x=>!x.finishedAt).length+" · Ověřeno na stanovišti: "+latest.filter(x=>x.l.verificationStatus==="ok").length+" · Vozidla: "+d.records+" · Průměrná intenzita: "+(intensity==null?"—":Math.round(intensity)+" voz/h");
-      $("locationList").innerHTML=d.users.map((u,i)=>{const l=u.lastLocation,name=presentation?"Sčítač "+(i+1):u.name,status=u.finishedAt?"Sčítání ukončeno":(u.lastVehicleAt&&Date.now()-Date.parse(u.lastVehicleAt)>=(Number(u.presenceChecksSinceVehicle||0)+1)*600000)?"Čeká na potvrzení přítomnosti":l?.verificationStatus==="uncertain"?"Poloha nejistá":l?.verificationStatus==="suspicious"?"Podezření na opuštění stanoviště":"Aktivní / poloha OK";return '<article class="adminRow"><b>'+esc(name)+'</b><div>'+esc(u.direction)+' · '+esc(status)+' · poslední vozidlo '+esc(u.lastVehicleAt||"—")+' · potvrzení '+esc(u.lastPresenceAt||"—")+' · kontrol '+Number(u.presenceChecksSinceVehicle||0)+(l?' · poslední ověřená poloha '+new Date(l.serverReceivedAt).toLocaleTimeString('cs-CZ')+' · ±'+Math.round(l.accuracy)+' m · '+(l.distanceFromStation==null?'—':Math.round(l.distanceFromStation)+' m'):' · poloha neověřena')+'</div></article>'}).join("")||'<p class="muted">Zatím nejsou sčítači.</p>';
+      $("locationList").innerHTML=d.users.map((u,i)=>{const l=u.lastLocation,name=presentation?"Sčítač "+(i+1):u.name,status=u.finishedAt?"Sčítání ukončeno":u.reauthRequired?"Čeká na ověření účtu a polohy":(u.lastVehicleAt&&Date.now()-Date.parse(u.presenceCycleAt||u.lastVehicleAt)>=(Number(u.presenceChecksSinceVehicle||0)+1)*600000)?"Čeká na potvrzení přítomnosti":l?.verificationStatus==="uncertain"?"Poloha nejistá":l?.verificationStatus==="suspicious"?"Podezření na opuštění stanoviště":"Aktivní / poloha OK";return '<article class="adminRow"><b>'+esc(name)+'</b><div>'+esc(u.direction)+' · '+esc(status)+' · poslední vozidlo '+esc(u.lastVehicleAt||"—")+' · potvrzení '+esc(u.lastPresenceAt||"—")+' · kontrol '+Number(u.presenceChecksSinceVehicle||0)+(l?' · poslední ověřená poloha '+new Date(l.serverReceivedAt).toLocaleTimeString('cs-CZ')+' · ±'+Math.round(l.accuracy)+' m · '+(l.distanceFromStation==null?'—':Math.round(l.distanceFromStation)+' m'):' · poloha neověřena')+'</div></article>'}).join("")||'<p class="muted">Zatím nejsou sčítači.</p>';
       if(typeof L!=="undefined"){
         if(!liveMap){liveMap=L.map("liveMap").setView([50.0755,14.4378],12);L.tileLayer("/map-tiles/{z}/{x}/{y}.png",{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> · mapové podklady OpenStreetMap'}).addTo(liveMap)}
         liveMap.invalidateSize();
         liveMap.eachLayer(x=>{if(x instanceof L.Marker)liveMap.removeLayer(x)});
         if(d.station.latitude!=null)L.marker([d.station.latitude,d.station.longitude]).addTo(liveMap).bindPopup("Stanoviště");
-        latest.forEach(({u,l},i)=>{const due=u.lastVehicleAt&&Date.now()-Date.parse(u.lastVehicleAt)>=(Number(u.presenceChecksSinceVehicle||0)+1)*600000,key=u.finishedAt?"location-ended":l.verificationStatus==="suspicious"?"location-suspect":l.verificationStatus==="uncertain"?"location-uncertain":due?"location-wait":"location-ok",icon=L.divIcon({className:"",html:'<span class="locationDot '+key+'"></span>',iconSize:[18,18],iconAnchor:[9,9]}),m=L.marker([l.latitude,l.longitude],{icon}).addTo(liveMap);m.bindPopup("<b>"+esc(presentation?"Sčítač "+(i+1):u.name)+"</b><br>"+esc(u.direction)+"<br>"+esc(u.finishedAt?"Sčítání ukončeno":due?"Čeká na potvrzení přítomnosti":l.verificationStatus)+"<br>Poslední vozidlo: "+esc(u.lastVehicleAt||"—")+"<br>Poslední potvrzení: "+esc(u.lastPresenceAt||"—")+"<br>Ověřeno: "+new Date(l.serverReceivedAt).toLocaleTimeString("cs-CZ")+" · ±"+Math.round(l.accuracy)+" m<br>Vzdálenost: "+(l.distanceFromStation==null?"—":Math.round(l.distanceFromStation)+" m")+" · kontrol: "+Number(u.presenceChecksSinceVehicle||0))});
+        latest.forEach(({u,l},i)=>{const due=u.reauthRequired || u.lastVehicleAt&&Date.now()-Date.parse(u.presenceCycleAt||u.lastVehicleAt)>=(Number(u.presenceChecksSinceVehicle||0)+1)*600000,key=u.finishedAt?"location-ended":l.verificationStatus==="suspicious"?"location-suspect":l.verificationStatus==="uncertain"?"location-uncertain":due?"location-wait":"location-ok",icon=L.divIcon({className:"",html:'<span class="locationDot '+key+'"></span>',iconSize:[18,18],iconAnchor:[9,9]}),m=L.marker([l.latitude,l.longitude],{icon}).addTo(liveMap);m.bindPopup("<b>"+esc(presentation?"Sčítač "+(i+1):u.name)+"</b><br>"+esc(u.direction)+"<br>"+esc(u.finishedAt?"Sčítání ukončeno":due?"Čeká na potvrzení přítomnosti":l.verificationStatus)+"<br>Poslední vozidlo: "+esc(u.lastVehicleAt||"—")+"<br>Poslední potvrzení: "+esc(u.lastPresenceAt||"—")+"<br>Ověřeno: "+new Date(l.serverReceivedAt).toLocaleTimeString("cs-CZ")+" · ±"+Math.round(l.accuracy)+" m<br>Vzdálenost: "+(l.distanceFromStation==null?"—":Math.round(l.distanceFromStation)+" m")+" · kontrol: "+Number(u.presenceChecksSinceVehicle||0))});
         const points=latest.map(({l})=>[l.latitude,l.longitude]);if(d.station.latitude!=null)points.push([d.station.latitude,d.station.longitude]);if(points.length)liveMap.fitBounds(points,{padding:[30,30],maxZoom:16});
       }else{$("liveMap").textContent="Mapové podklady se nepodařilo načíst. Informace o sčítačích jsou uvedeny v seznamu níže.";$("liveMap").style.display="grid";$('liveMap').style.placeItems="center";$('liveMap').style.padding="18px";$('liveMap').style.color="#52687b"}
     }
@@ -2717,22 +2755,40 @@
     $("presenceConfirm").onclick = async () => {
       const u2=JSON.parse(sessionStorage.getItem("trafficUser")||"null"); if(!u2)return;
       const button=$("presenceConfirm");if(button.disabled)return;button.disabled=true;
+      presenceBusy=true;paintReauthLock();$("presenceStatus").textContent="";
       try {
-        const advanced=!!current?.presenceVerification;let position=null;
-        if(advanced){try{position=await currentLocation()}catch(e){$("presenceStatus").textContent="Poloha nebyla ověřena. Povolte oprávnění k poloze a opakujte kontrolu.";return}}
-        const pr=await apiResult("/sessions/"+u2.code+"/users/"+u2.id+"/presence",{method:"POST",headers:{"X-Participant-Token":await participantToken(u2.code,u2.id)},body:"{}"});
-        if(!pr.ok)return alert("Potvrzení přítomnosti se nepodařilo odeslat. "+apiProblem(pr));
+        const advanced=!!current?.presenceVerification;
+        let position;
+        if(advanced && !reauthLocked){try{position=await currentLocation()}catch(e){$("presenceStatus").textContent="Poloha nebyla ověřena. Povolte oprávnění k poloze a opakujte kontrolu.";return;}}
+        if(!reauthLocked){
+          const pr=await apiResult("/sessions/"+u2.code+"/users/"+u2.id+"/presence",{method:"POST",headers:{"X-Participant-Token":await participantToken(u2.code,u2.id)},body:"{}"});
+          if(pr.data?.reauthRequired || pr.data?.error==="reauth_required") await setReauthLock(u2,true);
+          else if(!pr.ok){$("presenceStatus").textContent="Potvrzení se nepodařilo odeslat. "+apiProblem(pr);return;}
+        }
+        let proof;
+        if(reauthLocked){
+          const credentials=await reauthCredentials();if(!credentials)return;
+          const login=await apiResult("/sessions/"+u2.code+"/users/"+u2.id+"/reauth",{method:"POST",headers:{"X-Participant-Token":await participantToken(u2.code,u2.id)},body:JSON.stringify(credentials)});
+          credentials.password="";
+          if(login.data?.error==="reauth_not_due"){
+            const check=await apiResult("/sessions/"+u2.code+"/users/"+u2.id+"/heartbeat",{method:"POST",headers:{"X-Participant-Token":await participantToken(u2.code,u2.id)},body:"{}"});
+            if(check.ok && !check.data.reauthRequired && !check.data.finishedAt){await setReauthLock(u2,false);$("presenceBar").classList.add("hidden");return;}
+          }
+          if(!login.ok){$("presenceStatus").textContent="Ověření účtu se nezdařilo. Použijte účet připojeného sčítače. Sčítání zůstává pozastavené.";return;}
+          proof=login.data.reauthProof;
+        }
         if(advanced){
-          if(pr.data.reauthRequired){const email=prompt("Po třech kontrolách bez zaznamenaného vozidla se znovu přihlaste. E-mail účtu:");if(!email)return;const password=prompt("Zadejte heslo účtu. Heslo se neukládá:");if(!password)return;const login=await apiResult("/auth/login",{method:"POST",body:JSON.stringify({email,password})});if(!login.ok)return alert("Přihlášení se nezdařilo. Sčítání zůstává pozastavené.")}
-          const loc=await sendLocation(u2,pr.data.reauthRequired?"reauth":"presence-check",position);
-          if(!loc.ok)return alert("Poloha nebyla ověřena. Kontrola zůstává nedokončená. "+apiProblem(loc));
-          if(loc.data.finishedAt){await showServerFinish({finishedAt:loc.data.finishedAt,finishReason:loc.data.finishReason},u2);return}
-          if(loc.data.warning){$("presenceStatus").textContent="Podezřelá poloha. Správce byl upozorněn; proveďte další ověření.";return}
-          if(pr.data.reauthRequired&&loc.data.reauthRequired)return alert("Opětovné ověření nebylo dokončeno. Zkontrolujte účet a polohu.");
+          try{if(reauthLocked || !position)position=await currentLocation()}catch(e){$("presenceStatus").textContent="Poloha nebyla ověřena. Povolte oprávnění k poloze a opakujte kontrolu.";return;}
+          const loc=await sendLocation(u2,reauthLocked?"reauth":"presence-check",position,proof);
+          proof=undefined;
+          if(!loc.ok){$("presenceStatus").textContent="Poloha nebyla ověřena. Kontrola zůstává nedokončená. "+apiProblem(loc);return;}
+          if(loc.data.finishedAt){await showServerFinish({finishedAt:loc.data.finishedAt,finishReason:loc.data.finishReason},u2);return;}
+          if(loc.data.verificationStatus!=="ok" || loc.data.reauthRequired){$("presenceStatus").textContent="Poloha nebyla ověřena na stanovišti. Proveďte další ověření.";return;}
+          if(reauthLocked)await setReauthLock(u2,false);
         }
         lastActivityAt=Date.now();presencePromptFor=0;$("presenceBar").classList.add("hidden");
         await mutateLocal(async()=>{const active=JSON.parse(await storage.getItem("trafficActive")||"null");if(active&&active.code===u2.code&&active.id===u2.id){active.lastActivityAt=lastActivityAt;await storage.setItem("trafficActive",JSON.stringify(active))}});
-      } finally {button.disabled=false}
+      } finally {button.disabled=false;presenceBusy=false;paintReauthLock();}
     };
     let maintenanceRunning = false;
     setInterval(async () => {
@@ -2751,6 +2807,8 @@
         const r = await apiResult("/sessions/" + u2.code + "/users/" + u2.id + "/heartbeat", { method: "POST", headers: { "X-Participant-Token": await participantToken(u2.code, u2.id) }, body: "{}" });
         if (r.ok && r.data.finishedAt) {
           await showServerFinish(r.data, u2);
+        } else if (r.ok && r.data.reauthRequired) {
+          await setReauthLock(u2,true);
         } else if (r.ok && r.data.presenceDue) {
           $("presenceBar")?.classList.remove("hidden");
         }
@@ -2767,6 +2825,7 @@
         const dir = saved.directions.findIndex((d) => d.name === active.direction);
         if (dir >= 0) {
           current = saved;
+          reauthLocked=!!active.reauthRequired || (!!saved.presenceVerification && saved.users.some(u=>u.id===active.id && (u.reauthRequired || u.presenceChecksSinceVehicle>=3)));
           selectedDir = dir;
           started = active.started;
           const mine = current.records.filter((r) => r.userId === active.id);
@@ -2801,6 +2860,7 @@
     if (active && current?.code === active.code) {
       const result = await apiResult("/sessions/" + active.code + "/users/" + active.id + "/heartbeat", { method: "POST", headers: { "X-Participant-Token": await participantToken(active.code, active.id) }, body: "{}" });
       if (result.ok && result.data.finishedAt) await showServerFinish(result.data, active);
+      else if(result.ok && result.data.reauthRequired) await setReauthLock(active,true);
     }
     await initAccounts({ async open(code2) {
       const r = await apiResult("/sessions/" + code2 + "/manage");

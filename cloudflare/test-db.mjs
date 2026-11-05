@@ -9,6 +9,6 @@ CREATE TABLE audit(at TEXT,actor TEXT,action TEXT,target TEXT);
 CREATE TABLE accounts(id TEXT PRIMARY KEY,email TEXT UNIQUE,name TEXT,role TEXT,password TEXT,active INTEGER DEFAULT 1);
 CREATE TABLE logins(hash TEXT PRIMARY KEY,account_id TEXT,expires INTEGER);
 CREATE TABLE historical_archive(code TEXT PRIMARY KEY,metadata TEXT,xlsx_base64 TEXT,sha256 TEXT);`);
-  const db={prepare(query){return {bind(...args){const stmt=sql.prepare(query);return {async first(){return stmt.get(...args)||null},async all(){return {results:stmt.all(...args)}},async run(){return {meta:{changes:Number(stmt.run(...args).changes)}}}}}}},async batch(stmts){sql.exec('BEGIN');try{const r=[];for(const s of stmts)r.push(await s.run());sql.exec('COMMIT');return r}catch(e){sql.exec('ROLLBACK');throw e}}};
+  const db={prepare(query){return {bind(...args){const stmt=sql.prepare(query);return {async first(){return stmt.get(...args)||null},async all(){return {results:stmt.all(...args)}},runSync(){return {meta:{changes:Number(stmt.run(...args).changes)}}},async run(){return this.runSync()}}}}},async batch(stmts){sql.exec('BEGIN');try{const r=[];for(const s of stmts)r.push(s.runSync());sql.exec('COMMIT');return r}catch(e){sql.exec('ROLLBACK');throw e}}};
   return {sql,db};
 }
