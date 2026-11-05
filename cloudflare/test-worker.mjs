@@ -1,7 +1,7 @@
 import {testDatabase} from './test-db.mjs';
 import stats from '../traffic-stats.js';
 import workSummary from '../work-summary.js';
-import {createHash} from 'node:crypto';
+import {createHash,scryptSync} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import worker from './worker-release-1.6.0.mjs';
@@ -20,7 +20,7 @@ await join('one');
 const joined=(await call('/api/sessions/TEST14/users','POST',{id:'one',name:'changed',direction:'A',joined:'2099-01-01'},token)).body;
 assert.equal(joined.name,'one');assert(Number.isFinite(Date.parse(joined.joined)));assert(!joined.joined.startsWith('2099'));
 const base='/api/sessions/TEST14/users/one/';
-function age(minutes){const t=new Date(Date.now()-minutes*60000).toISOString();sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?,'$.lastVehicleAt',?) WHERE id='one'").run(t,t)}
+function age(minutes){const t=new Date(Date.now()-minutes*60000).toISOString();sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?,'$.lastVehicleAt',?,'$.presenceCycleAt',?) WHERE id='one'").run(t,t,t)}
 age(9);assert.equal((await call(base+'heartbeat','POST',{},token)).body.presenceDue,false);
 age(10.1);assert.equal((await call(base+'heartbeat','POST',{},token)).body.presenceDue,true);
 assert.equal((await call(base+'presence','POST',{},token)).status,200);assert.equal((await call(base+'heartbeat','POST',{},token)).body.presenceDue,false);
@@ -102,7 +102,7 @@ for(const category of ['car','tram']){const result=await call('/api/sessions','P
 sql.prepare("UPDATE sessions SET data=json_remove(data,'$.categories') WHERE code='TEST14'").run();
 assert.deepEqual(stats.categories((await call('/api/sessions/TEST14')).body).map(c=>c.id),stats.legacy);
 // Existing account cookies and ownership still gate administration.
-for(const [id,role] of [['owner','organizer'],['other','organizer'],['admin','admin'],['user','user']])sql.prepare('INSERT INTO accounts(id,email,name,role,password) VALUES(?,?,?,?,?)').run(id,id+'@test.invalid',id,role,'unused');
+for(const [id,role] of [['owner','organizer'],['other','organizer'],['admin','admin'],['user','user']])sql.prepare('INSERT INTO accounts(id,email,name,role,password) VALUES(?,?,?,?,?)').run(id,id+'@test.invalid',id,role,'test-salt:'+scryptSync('Presence-Test-Password-123','test-salt',64,{N:32768,r:8,p:3,maxmem:67108864}).toString('hex'));
 const cookies={};for(const [i,id] of ['owner','other','admin','user'].entries()){const t=String(i+1).repeat(64);cookies[id]={cookie:'traffic_session='+t};sql.prepare('INSERT INTO logins VALUES(?,?,?)').run(createHash('sha256').update(t).digest('hex'),id,Date.now()+60000)}
 const owned=await call('/api/sessions','POST',{...input,code:'OWN015'},cookies.owner);assert.equal(owned.body.adminToken,'account');
 assert.equal((await call('/api/sessions/OWN015/manage','GET',undefined,cookies.owner)).status,200);
@@ -116,7 +116,11 @@ const geoAdmin={'X-Admin-Token':geo.body.adminToken},geoToken={'X-Participant-To
 assert.equal((await call(geoBase+'/users','POST',{id:'geo',name:'Geo',direction:'Road'},geoToken)).status,401);
 assert.equal((await call(geoBase+'/users','POST',{id:'geo',name:'Geo',direction:'Road'},{...geoToken,...cookies.owner})).status,201);
 for(let i=1;i<=3;i++){const result=await call(geoBase+'/users/geo/presence','POST',{},geoToken);assert.equal(result.body.presenceChecksSinceVehicle,i);assert.equal(result.body.reauthRequired,i===3)}
-assert.equal((await call(geoBase+'/users/geo/location','POST',{latitude:50,longitude:14,accuracy:12,eventType:'reauth'},{...geoToken,...cookies.owner})).body.verificationStatus,'ok');
+assert.equal((await call(geoBase+'/records','POST',{id:'blocked',userId:'geo',direction:'Road',categoryId:'car',time:new Date().toISOString()},geoToken)).body.error,'reauth_required');
+assert.equal((await call(geoBase+'/users/geo/location','POST',{latitude:50,longitude:14,accuracy:12,eventType:'reauth'},{...geoToken,...cookies.owner})).status,401);
+const fresh=await call(geoBase+'/users/geo/reauth','POST',{email:'owner@test.invalid',password:'Presence-Test-Password-123'},geoToken);assert.equal(fresh.status,200);
+cookies.owner={cookie:fresh.headers.get('set-cookie').split(';')[0]};
+assert.equal((await call(geoBase+'/users/geo/location','POST',{latitude:50,longitude:14,accuracy:12,eventType:'reauth',reauthProof:fresh.body.reauthProof},{...geoToken,...cookies.owner})).body.verificationStatus,'ok');
 assert.equal(JSON.parse(sql.prepare("SELECT data FROM users WHERE code='GEO160' AND id='geo'").get().data).presenceChecksSinceVehicle,0);
 assert.equal((await call(geoBase+'/users/geo/location','POST',{latitude:50,longitude:14,accuracy:300,eventType:'presence-check'},geoToken)).body.verificationStatus,'uncertain');
 const outside={latitude:50.02,longitude:14,accuracy:5,eventType:'presence-check'};
