@@ -198,8 +198,33 @@ function sessionInput(x) {
   return { categories, hourlyRate, code: x.code, place: x.place, station: x.station, group: x.group, directions, presenceVerification: !!x.presenceVerification, stationLatitude: Number.isFinite(x.stationLatitude) ? x.stationLatitude : null, stationLongitude: Number.isFinite(x.stationLongitude) ? x.stationLongitude : null, stationAccuracy: Number.isFinite(x.stationAccuracy) ? x.stationAccuracy : null, locationRadiusMeters: 250, created: (/* @__PURE__ */ new Date()).toISOString() };
 }
 __name(sessionInput, "sessionInput");
+async function mapTile(req, path) {
+  if (!["GET", "HEAD"].includes(req.method)) return new Response("method_not_allowed", { status: 405, headers: { "Allow": "GET, HEAD", "Cache-Control": "no-store" } });
+  const match = /^\/map-tiles\/(\d{1,2})\/(\d+)\/(\d+)\.png$/.exec(path);
+  if (!match) return new Response("not_found", { status: 404, headers: { "Cache-Control": "no-store" } });
+  const z = Number(match[1]), x = Number(match[2]), y = Number(match[3]), limit = 2 ** z;
+  if (z > 19 || x >= limit || y >= limit) return new Response("invalid_tile", { status: 400, headers: { "Cache-Control": "no-store" } });
+  const headers = { "User-Agent": "ScitaniDopravy/1.6.0 (+https://scitanidopravnihoproudu.org/)", "Referer": req.headers.get("Referer") || "https://scitanidopravnihoproudu.org/" };
+  for (const host of ["tile.openstreetmap.org", "tile.openstreetmap.de"]) {
+    try {
+      const upstream = await fetch(`https://${host}/${z}/${x}/${y}.png`, { headers });
+      const type = upstream.headers.get("Content-Type") || "";
+      if (!upstream.ok || !type.startsWith("image/")) continue;
+      const responseHeaders = new Headers({ "Content-Type": type, "X-Content-Type-Options": "nosniff" });
+      for (const key of ["Cache-Control", "ETag", "Last-Modified", "Expires", "Vary"]) {
+        const value = upstream.headers.get(key);
+        if (value) responseHeaders.set(key, value);
+      }
+      return new Response(req.method === "HEAD" ? null : upstream.body, { status: 200, headers: responseHeaders });
+    } catch {}
+  }
+  return new Response("map_tile_unavailable", { status: 502, headers: { "Cache-Control": "no-store", "Content-Type": "text/plain; charset=utf-8" } });
+}
+__name(mapTile, "mapTile");
 async function handle(req, env) {
-  const url = new URL(req.url), p = url.pathname.split("/").filter(Boolean), db = env.DB.withSession ? env.DB.withSession("first-primary") : env.DB, accounts = new Accounts(db);
+  const url = new URL(req.url);
+  if (url.pathname.startsWith("/map-tiles/")) return mapTile(req, url.pathname);
+  const p = url.pathname.split("/").filter(Boolean), db = env.DB.withSession ? env.DB.withSession("first-primary") : env.DB, accounts = new Accounts(db);
   if (url.pathname === "/health" && req.method === "GET") {
     await q(db, "SELECT 1").first();
     return json({ ok: true, app: "scitani-dopravy", version: "1.6.0", environment: "production", storage: "cloudflare-d1", build: "v1.6.0-presence-location" });
@@ -210,7 +235,7 @@ async function handle(req, env) {
     const asset = embedded ? new Response(req.method === "HEAD" ? null : embedded.body, {headers: {"Content-Type": embedded.type}}) : await env.ASSETS.fetch(req);
     const r = new Response(asset.body, asset);
     r.headers.set("Cache-Control", "no-cache");
-    r.headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://tile.openstreetmap.de https://*.tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    r.headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
     r.headers.set("X-Content-Type-Options", "nosniff");
     r.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     return r;
