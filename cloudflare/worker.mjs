@@ -210,9 +210,9 @@ async function handle(req, env) {
     const asset = embedded ? new Response(req.method === "HEAD" ? null : embedded.body, {headers: {"Content-Type": embedded.type}}) : await env.ASSETS.fetch(req);
     const r = new Response(asset.body, asset);
     r.headers.set("Cache-Control", "no-cache");
-    r.headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    r.headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
     r.headers.set("X-Content-Type-Options", "nosniff");
-    r.headers.set("Referrer-Policy", "same-origin");
+    r.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     return r;
   }
   if (!["GET", "HEAD"].includes(req.method)) {
