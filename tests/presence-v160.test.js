@@ -48,8 +48,17 @@ test('three presence checks require the linked account and a valid location; a v
  assert.equal((await api(p+'/users','POST',{id:'b',name:'Sčítač',direction:'Sever'}, {...pt,Cookie:cookie})).status,201);
  for(let i=1;i<=3;i++){const r=await api(p+'/users/b/presence','POST',{},pt);assert.equal(r.data.presenceChecksSinceVehicle,i);assert.equal(r.data.reauthRequired,i===3)}
  assert.equal((await api(p+'/users/b/location','POST',{latitude:50,longitude:14,accuracy:12,eventType:'reauth'},pt)).status,401);
- const suspiciousReauth=await api(p+'/users/b/location','POST',{latitude:50.02,longitude:14,accuracy:5,eventType:'reauth'}, {...pt,Cookie:cookie});assert.equal(suspiciousReauth.data.warning,true);assert.equal(suspiciousReauth.data.reauthRequired,true);
- const reauth=await api(p+'/users/b/location','POST',{latitude:50,longitude:14,accuracy:12,eventType:'reauth'}, {...pt,Cookie:cookie});assert.equal(reauth.data.verificationStatus,'ok');assert.equal(reauth.data.reauthRequired,false);
+ const vehicle={id:'blocked',userId:'b',time:new Date().toISOString(),direction:'Sever',category:'Osobní auta'};
+ assert.equal((await api(p+'/records','POST',vehicle,pt)).data.error,'reauth_required');
+ assert.equal((await api(p+'/users/b/presence','POST',{},pt)).status,409);
+ assert.equal((await api(p+'/users/b/location','POST',{latitude:50,longitude:14,accuracy:12,eventType:'reauth'}, {...pt,Cookie:cookie})).status,401);
+ assert.equal((await api(p+'/users/b/reauth','POST',{email:'admin@presence.test',password:'wrong'},pt)).status,401);
+ const fresh=await api(p+'/users/b/reauth','POST',{email:'admin@presence.test',password:'Presence-Test-Password-123'},pt);
+ assert.equal(fresh.status,200);const reauthProof=fresh.data.reauthProof;
+ const uncertain=await api(p+'/users/b/location','POST',{latitude:50,longitude:14,accuracy:300,eventType:'reauth',reauthProof}, {...pt,Cookie:cookie});assert.equal(uncertain.data.reauthRequired,true);
+ assert.equal((await api(p+'/records','POST',vehicle,pt)).status,409);
+ const suspiciousReauth=await api(p+'/users/b/location','POST',{latitude:50.02,longitude:14,accuracy:5,eventType:'reauth',reauthProof}, {...pt,Cookie:cookie});assert.equal(suspiciousReauth.data.warning,true);assert.equal(suspiciousReauth.data.reauthRequired,true);
+ const reauth=await api(p+'/users/b/location','POST',{latitude:50,longitude:14,accuracy:12,eventType:'reauth',reauthProof}, {...pt,Cookie:cookie});assert.equal(reauth.data.verificationStatus,'ok');assert.equal(reauth.data.reauthRequired,false);
  const rec=await api(p+'/records','POST',{id:'v1',userId:'b',time:new Date().toISOString(),direction:'Sever',movement:'',category:'Osobní auta'},pt);assert.equal(rec.status,201);
  const admin=await api(p+'/manage','GET',undefined,{'X-Admin-Token':created.data.adminToken});assert.equal(admin.data.users[0].presenceChecksSinceVehicle,0);assert.ok(admin.data.users[0].lastVehicleAt);
 });
