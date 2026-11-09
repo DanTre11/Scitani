@@ -2042,6 +2042,9 @@
     async function participantToken(code2, id) {
       return await storage.getItem("trafficParticipant:" + code2 + ":" + id) || "";
     }
+    async function participantHeaders(code, id) {
+      return { "X-User-Id": id, "X-Participant-Token": await participantToken(code, id) };
+    }
     async function adminToken(code2) {
       return await storage.getItem("trafficAdminToken:" + code2) || "";
     }
@@ -2062,7 +2065,7 @@
             const all = [];
             let after = "", pages = 0;
             do {
-              const page = await apiResult("/sessions/" + encodeURIComponent(data.code) + "/records?after=" + encodeURIComponent(after));
+              const page = await apiResult("/sessions/" + encodeURIComponent(data.code) + "/records?after=" + encodeURIComponent(after), { headers: opt.headers });
               if (!page.ok) return page;
               if (!Array.isArray(page.data.records) || ++pages > 2e3) return { ok: false, kind: "response", status: 0 };
               all.push(...page.data.records);
@@ -2110,10 +2113,14 @@
     }
     async function syncCurrent() {
       if (!current) return null;
-      let x = await api("/sessions/" + current.code);
+      const code = current.code, identity = JSON.parse(sessionStorage.getItem("trafficUser") || "null");
+      const headers = identity?.code === code ? await participantHeaders(code, identity.id) : {};
+      if (isCreator) headers["X-Admin-Token"] = await adminToken(code);
+      let x = await api("/sessions/" + code, { headers });
+      if (!validSession(x) || current?.code !== code) return null;
       if (x) {
         await mutateLocal(async () => {
-          const pending = JSON.parse(await storage.getItem("trafficQueue") || "[]").filter((q) => q.code === x.code);
+          const pending = JSON.parse(await storage.getItem("trafficQueue") || "[]").filter((q) => q.code === x.code && x.users.some(u => u.id === q.record.userId));
           for (const q of pending) {
             x.records = x.records.filter((r) => r.id !== q.record.id);
             if (q.action !== "delete") x.records.push(q.record);
@@ -2248,7 +2255,7 @@
         if (IS_HOSTED) {
           const result = await apiResult("/sessions/" + encodeURIComponent(c));
           if (result.ok) {
-            d = result.data;
+            d = { users: [], records: [], ...result.data };
             if (!validSession(d) || d.code !== c) return alert("Server nevr\xE1til platn\xE9 \xFAdaje s\u010D\xEDt\xE1n\xED. Ov\u011B\u0159te nasazen\xED aplikace.");
           } else if (result.status === 404) return alert("S\u010D\xEDt\xE1n\xED s k\xF3dem " + c + " na tomto serveru neexistuje. Ov\u011B\u0159te k\xF3d a stejnou adresu aplikace na obou telefonech. Star\u0161\xED k\xF3d mohl vzniknout pouze lok\xE1ln\u011B nebo se serverov\xE1 data mohla ztratit p\u0159i nov\xE9m nasazen\xED. Spr\xE1vce mus\xED vytvo\u0159it nov\xE9 spole\u010Dn\xE9 s\u010D\xEDt\xE1n\xED.");
           else if (result.kind === "network" || result.kind === "timeout") {
@@ -2309,7 +2316,9 @@
       await storage.setItem("trafficParticipant:" + current.code + ":" + uid, secret);
       const result = await apiResult("/sessions/" + current.code + "/users", { method: "POST", headers: { "X-Participant-Token": secret }, body: JSON.stringify(u2) });
       if (!result.ok) return alert("Pro zah\xE1jen\xED se nejprve p\u0159ipojte k internetu. " + apiProblem(result));
-      Object.assign(u2, result.data);
+      const { hourlyRate, ...joinedUser } = result.data;
+      current.hourlyRate = hourlyRate ?? current.hourlyRate;
+      Object.assign(u2, joinedUser);
       if(current.presenceVerification){try{const position=await currentLocation();const loc=await sendLocation({code:current.code,id:uid},'join',position);if(!loc.ok){await apiResult('/sessions/'+current.code+'/users/'+uid+'/finish',{method:'POST',headers:{'X-Participant-Token':secret},body:'{}'});return alert('Ověření polohy při zahájení se nezdařilo. Povolte přístup k poloze a připojte se znovu.')}if(loc.data.finishedAt)return alert('Sčítání bylo ukončeno po opakovaném ověření polohy mimo stanoviště. Kontaktujte správce.');if(loc.data.location?.verificationStatus==='uncertain')alert('Poloha nebyla ověřena kvůli nepřesnosti GPS. Záznam proběhl bez automatického ukončení.');if(loc.data.location?.verificationStatus==='suspicious')alert('Poloha neodpovídá zadanému stanovišti. Správce obdrží upozornění. Zkontrolujte stanoviště a povolení GPS.')}catch(e){await apiResult('/sessions/'+current.code+'/users/'+uid+'/finish',{method:'POST',headers:{'X-Participant-Token':secret},body:'{}'});return alert('Poloha nebyla ověřena. Povolte přístup k poloze a zkuste zahájení znovu.')}}
       current.users.push(u2);
       await persist();
@@ -2732,8 +2741,8 @@
       finishing = (async () => {
         const pending = JSON.parse(await storage.getItem("trafficFinishes") || "[]");
         for (const x of pending) {
-          const snapshot = await apiResult("/sessions/" + x.code);
-          const finishedUser = snapshot.ok && snapshot.data.users.find(u => u.id === x.id && u.finishedAt);
+          const snapshot = await apiResult("/sessions/" + x.code, { headers: await participantHeaders(x.code, x.id) });
+          const finishedUser = snapshot.ok && snapshot.data.users?.find(u => u.id === x.id && u.finishedAt);
           let result;
           if (finishedUser) result = { ok: true, data: { user: finishedUser, finishedAt: finishedUser.finishedAt, finishReason: finishedUser.finishReason } };
           else {

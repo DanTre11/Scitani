@@ -59,6 +59,22 @@ test('two participants sync road and tram, validate categories, undo, admin fini
  assert.equal((await api(p+'/records','POST',rec(3,'Kamiony'),{'X-Participant-Token':'a'})).status,400);
  assert.equal((await api(p+'/records','POST',rec(3,'Tramvaje'),{'X-Participant-Token':'a'})).status,400);
  assert.equal((await api(p+'/records','POST',rec(2,'Tramvaje','Centrum'),{'X-Participant-Token':'b'})).status,200);
+ const publicView=(await api(p)).data;
+ assert.equal(publicView.code,code);
+ for(const field of ['users','records','stationLatitude','stationLongitude','locationHistory','pagedRecords'])assert.equal(field in publicView,false);
+ for(const id of ['a','b']){
+   const auth={'X-Participant-Token':id};
+   const own=(await api(p,'GET',undefined,auth)).data;
+   assert.deepEqual(own.users.map(u=>u.id),[id]);
+   assert.deepEqual(own.records.map(v=>v.userId),[id]);
+   assert.equal((await api(p+'/locations','GET',undefined,auth)).status,403);
+ }
+ assert.equal((await api(p+'/records','POST',{...rec(2,'Osobní auta'),userId:'a'},{'X-Participant-Token':'a'})).status,409);
+ for(const auth of [admin,{Cookie:cookie}]){
+   const full=(await api(p,'GET',undefined,auth)).data;
+   assert.deepEqual(full.users.map(u=>u.id),['a','b']);
+   assert.deepEqual(full.records.map(v=>v.userId),['a','b']);
+ }
  const read=(await api(p+'/manage','GET',undefined,admin)).data;assert.equal(read.records.length,2);assert.deepEqual(read.categories,base().categories);assert.ok(read.users.every(u=>!u.participantToken));
  assert.equal((await api(p+'/manage')).status,403);assert.equal((await api(p+'/manage','GET',undefined,{Cookie:cookie})).status,200);
  assert.equal((await api('/api/dashboard','GET',undefined,{Cookie:cookie})).data[0].vehicles,2);

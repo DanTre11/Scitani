@@ -1,6 +1,10 @@
 const {chromium}=require('playwright'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {spawn}=require('node:child_process');
 (async()=>{
+ async function readManaged(page,code){
+   const token=await page.evaluate(code=>localStorage.getItem('v130:'+location.origin+':trafficAdminToken:'+code),code);
+   return (await page.request.get(new URL('/api/sessions/'+code,page.url()).href,{headers:{'X-Admin-Token':token}})).json();
+ }
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'scitani-ui15-'));let server,browser;
  try{
  server=spawn(process.execPath,[process.env.WORKER_TEST?'cloudflare/test-server.mjs':'server.js'],{cwd:path.join(__dirname,'..'),env:{...process.env,PORT:'0',DATA_FILE:path.join(dir,'data.json')},stdio:['ignore','pipe','inherit']});
@@ -29,7 +33,7 @@ const {spawn}=require('node:child_process');
  console.log('PASS dynamic subset, separate tram screen, directions, hidden counts, two participants and server dashboard');
  await contexts[2].setOffline(true);await tram.locator('.vehicle').click();await tram.locator('#bottom').click();await tram.locator('#undo').click();await tram.locator('.handle').click();await tram.locator('.vehicle').click();await contexts[2].setOffline(false);
  await admin.locator('#trafficDashboard').getByText('5 vozidel',{exact:true}).waitFor({timeout:30000});
- const session=await(await fetch(origin+'/api/sessions/'+code)).json();assert.equal(session.records.filter(r=>r.category==='Tramvaje').length,2);
+ const session=await readManaged(admin,code);assert.equal(session.records.filter(r=>r.category==='Tramvaje').length,2);
  const download=admin.waitForEvent('download');await admin.locator('#adminExport').click();const file=await download;const bytes=fs.readFileSync(await file.path());assert.equal(bytes.subarray(0,2).toString(),'PK');assert.ok(bytes.includes(Buffer.from('Intenzita a skladba')));assert.ok(bytes.includes(Buffer.from('Tramvaje')));
  assert.equal(await tram.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await admin.locator('#adminEnd').click();await admin.locator('#confirmAdminEnd').click();await admin.locator('#finishAdmin').waitFor({state:'visible'});
@@ -49,7 +53,7 @@ const {spawn}=require('node:child_process');
    await p.locator('#creatorChoose').click();await p.locator('#userName').fill('Only '+category);await p.locator('#selectDirs button').first().click();await p.locator('#start').click();await p.locator('#count').waitFor({state:'visible'});
    assert.equal(await p.locator('.vehicle').count(),1);assert.equal((await p.locator('.vehicle').innerText()).includes('TRAMVAJ'),category==='tram');await p.locator('.vehicle').click();
    await p.waitForFunction(()=>document.getElementById('netbar').textContent.includes('vše synchronizováno'));
-   const single=await(await fetch(origin+'/api/sessions/'+singleCode)).json();assert.equal(single.records.length,1);assert.deepEqual(single.categories,[category]);await context.close();
+   const single=await readManaged(p,singleCode);assert.equal(single.records.length,1);assert.deepEqual(single.categories,[category]);await context.close();
  }
  assert.deepEqual(errors,[]);console.log('PASS road-only subset and tram-only creation and counting');
  }finally{await browser?.close();server?.kill();fs.rmSync(dir,{recursive:true,force:true});}
