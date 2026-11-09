@@ -169,14 +169,14 @@ async function sessionView(db, c, paged = true) {
   return { ...JSON.parse(s.data), serverNow: new Date().toISOString(), ownerId: s.owner_id, ended: !!s.ended, endedAt: s.ended_at, users: users.results.map(publicUser), records: records.map((r) => JSON.parse(r.data)), ...paged ? { pagedRecords: true } : {} };
 }
 __name(sessionView, "sessionView");
-function manage(a, s, req) {
-  if (a?.role === "admin") return;
-  if (s.owner_id) {
-    if (a?.role === "organizer" && a.id === s.owner_id) return;
-    fail(403, "forbidden");
-  }
+function canManage(a, s, req) {
+  if (a?.role === "admin") return true;
+  if (s.owner_id) return a?.role === "organizer" && a.id === s.owner_id;
   const t = req.headers.get("x-admin-token");
-  if (!t || hash(t) !== hash(s.admin_token)) fail(403, "forbidden");
+  return !!t && hash(t) === hash(s.admin_token);
+}
+function manage(a, s, req) {
+  if (!canManage(a, s, req)) fail(403, "forbidden");
 }
 __name(manage, "manage");
 async function member(db, req, c, id) {
@@ -308,7 +308,28 @@ async function handle(req, env) {
   if (!/^[A-Z0-9]{6}$/.test(c)) fail(404, "not_found");
   await settleSession(db, c);
   const s = await getSession(db, c), data = JSON.parse(s.data);
-  if (req.method === "GET" && p.length === 3) return json(await sessionView(db, c, url.searchParams.get("summary") === "1"));
+  // Resolve the reader once for snapshots and every records page.
+  let manager = false, reader = null;
+  if (req.method === "GET" && (p.length === 3 || (p[3] === "records" && p.length === 4))) {
+    manager = canManage(a, s, req);
+    const token = req.headers.get("x-participant-token"), id = req.headers.get("x-user-id");
+    if (!manager && token) reader = await q(db,
+      "SELECT * FROM users WHERE code=? AND token_hash=? AND (? IS NULL OR id=?) ORDER BY id LIMIT 1",
+      c, hash(token), id, id).first();
+    if (p.length === 3) {
+      const paged = url.searchParams.get("summary") === "1";
+      if (manager) return json(await sessionView(db, c, paged));
+      const {place, station, group, directions, categories, presenceVerification, locationRadiusMeters} = data;
+      const meta = {code:c, place, station, group, directions, categories, presenceVerification,
+        locationRadiusMeters, ended:!!s.ended, endedAt:s.ended_at, serverNow:new Date().toISOString()};
+      if (!reader) return json(meta);
+      const records = paged ? [] : (await q(db,
+        "SELECT data FROM records WHERE code=? AND user_id=? ORDER BY id LIMIT 5001", c, reader.id).all()).results;
+      if (records.length > 5000) fail(413, "use_paged_records");
+      return json({...meta, hourlyRate:data.hourlyRate, users:[publicUser(reader)],
+        records:records.map(r=>JSON.parse(r.data)), ...(paged ? {pagedRecords:true} : {})});
+    }
+  }
   if (p[3] === "manage" && p.length === 4) {
     manage(a, s, req);
     if (req.method === "GET") return json(await sessionView(db, c));
@@ -379,7 +400,11 @@ async function handle(req, env) {
   if (req.method === "GET" && p[3] === "records" && p.length === 4) {
     const after = url.searchParams.get("after") || "";
     if (after.length > 200) fail(400, "invalid_cursor");
-    const rows = (await q(db, "SELECT id,data FROM records WHERE code=? AND id>? ORDER BY id LIMIT 501", c, after).all()).results;
+    if (!manager && !reader) fail(403, "forbidden");
+    const query = manager
+      ? q(db, "SELECT id,data FROM records WHERE code=? AND id>? ORDER BY id LIMIT 501", c, after)
+      : q(db, "SELECT id,data FROM records WHERE code=? AND user_id=? AND id>? ORDER BY id LIMIT 501", c, reader.id, after);
+    const rows = (await query.all()).results;
     return json({ records: rows.slice(0, 500).map((r) => JSON.parse(r.data)), next: rows.length > 500 ? rows[499].id : null });
   }
   if (req.method === "POST" && p[3] === "users" && p.length === 4) {
@@ -391,7 +416,7 @@ async function handle(req, env) {
     const existing = await q(db, "SELECT * FROM users WHERE code=? AND id=?", c, x.id).first();
     if (existing) {
       if (hash(t) !== existing.token_hash) fail(403, "participant_required");
-      return json(publicUser(existing));
+      return json({...publicUser(existing), hourlyRate:data.hourlyRate});
     }
     if (s.ended) fail(409, "ended");
     if (data.presenceVerification && !a) fail(401, "login_required_for_location");
@@ -401,7 +426,7 @@ async function handle(req, env) {
       await member(db, req, c, x.id);
       if (s.ended) fail(409, "ended");
     }
-    return json(publicUser(await member(db, req, c, x.id)), 201);
+    return json({...publicUser(await member(db, req, c, x.id)), hourlyRate:data.hourlyRate}, 201);
   }
   if (req.method === "POST" && p[3] === "users" && p.length === 6 && ["heartbeat", "presence", "finish"].includes(p[5])) {
     let u = await member(db, req, c, p[4]);

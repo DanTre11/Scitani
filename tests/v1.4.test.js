@@ -54,10 +54,10 @@ test('server join and activity ignore incorrect phone clock; duplicate records d
  assert.ok(Math.abs(Date.parse(joined.data.joined)-Date.now())<10000);
  const r={id:'r',userId:'new',time:'2099-01-01',category:'Osobní auta'};
  assert.equal((await request('/api/sessions/CLOCK1/records','POST',r)).status,201);
- const first=(await request('/api/sessions/CLOCK1')).data.users.find(x=>x.id==='new');
+ const first=(await request('/api/sessions/CLOCK1','GET',undefined,'admin',true)).data.users.find(x=>x.id==='new');
  assert.ok(Math.abs(Date.parse(first.lastActivity)-Date.now())<10000);
  await request('/api/sessions/CLOCK1/records','POST',r);
- const next=(await request('/api/sessions/CLOCK1')).data;
+ const next=(await request('/api/sessions/CLOCK1','GET',undefined,'admin',true)).data;
  assert.equal(next.users.find(x=>x.id==='new').lastActivity,first.lastActivity);assert.equal(next.records.length,1);
 });
 test('participant and admin tokens are required',async()=>{
@@ -99,6 +99,7 @@ test('offline finish survives retries; confirmed server reason updates cache and
  const memory={trafficSessions:JSON.stringify({ABC123:current}),trafficFinishes:JSON.stringify([{...identity,reason:'manual'}]),trafficQueue:'[]'};
  let online=false, renders=0, finished={id:'u',joined:'2026-01-01T10:00:00Z',finishedAt:'2026-01-01T10:20:00Z',finishReason:'session-ended'};
  const ctx=vm.createContext({current,storage:{getItem:async k=>memory[k],setItem:async(k,v)=>{memory[k]=v;}},db:async()=>JSON.parse(memory.trafficSessions),saveDB:async d=>{memory.trafficSessions=JSON.stringify(d);},mutateLocal:async f=>f(),sessionStorage:{getItem:()=>JSON.stringify(identity)},$:()=>({classList:{contains:()=>false}}),renderUserFinal:()=>{renders++;},participantToken:async()=> 'token',apiResult:async()=>online?{ok:true,data:{users:[finished]}}:{ok:false,kind:'network'}});
+ vm.runInContext(source.slice(source.indexOf('    async function participantHeaders'),source.indexOf('    async function adminToken')),ctx);
  vm.runInContext(source.slice(source.indexOf('    async function acceptServerFinish'),source.indexOf('    async function showServerFinish')),ctx);
  vm.runInContext(source.slice(source.indexOf('    let finishing = null;'),source.indexOf('    $("presenceConfirm").onclick')),ctx);
  await vm.runInContext('flushFinishes()',ctx);assert.equal(JSON.parse(memory.trafficFinishes).length,1);assert.equal(current.users[0].finishedAt,undefined);

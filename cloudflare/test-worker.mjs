@@ -35,7 +35,7 @@ assert.equal((await call(base+'finish','POST',{reason:'manual'},token)).status,2
 assert.equal(JSON.parse(sql.prepare("SELECT data FROM users WHERE id='one'").get().data).finishReason,'inactivity');
 await join('two');assert.equal((await call('/api/sessions/TEST14/users/two/finish','POST',{reason:'manual'},token)).status,200);
 await join('three');assert.equal((await call('/api/sessions/TEST14/end','POST',{},admin)).status,200);
-const summary=(await call('/api/sessions/TEST14')).body;assert.deepEqual(summary.users.map(u=>u.finishReason),['inactivity','session-ended','manual']);assert(summary.users.every(u=>u.finishedAt));assert.equal(summary.hourlyRate,150);
+const summary=(await call('/api/sessions/TEST14','GET',undefined,admin)).body;assert.deepEqual(summary.users.map(u=>u.finishReason),['inactivity','session-ended','manual']);assert(summary.users.every(u=>u.finishedAt));assert.equal(summary.hourlyRate,150);
 assert.equal((await call('/api/sessions/TEST14/users/three/heartbeat','POST',{},token)).body.ended,true);
 assert.equal((await call('/api/sessions/TEST14/users/three/heartbeat','POST',{})).status,403);
 // Existing 1.3 rows use their latest record, then join time, as inactivity baseline.
@@ -46,7 +46,7 @@ assert.equal((await call('/api/sessions/TEST14/users/legacy/heartbeat','POST',{}
 await join('silent');
 const activity='2026-01-01T10:00:00.123Z', deadline='2026-01-01T10:20:00.123Z';
 sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?) WHERE id='silent'").run(activity);
-const silent=(await call('/api/sessions/TEST14')).body.users.find(u=>u.id==='silent');
+const silent=(await call('/api/sessions/TEST14','GET',undefined,admin)).body.users.find(u=>u.id==='silent');
 assert.equal(silent.finishedAt,deadline);assert.equal(silent.finishReason,'inactivity');
 assert.equal((await call('/api/sessions/TEST14/users/silent/finish','POST',{},token)).body.user.finishedAt,deadline);
 // An older stored session end wins only if it preceded the inactivity deadline.
@@ -54,14 +54,14 @@ await join('before');await join('after');
 sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?) WHERE id IN ('before','after')").run(activity);
 sql.prepare("UPDATE users SET data=json_set(data,'$.lastActivity',?) WHERE id='after'").run('2026-01-01T10:15:00.123Z');
 sql.prepare("UPDATE sessions SET ended=1,ended_at=? WHERE code='TEST14'").run('2026-01-01T10:25:00.123Z');
-const ended=(await call('/api/sessions/TEST14')).body;
+const ended=(await call('/api/sessions/TEST14','GET',undefined,admin)).body;
 assert.equal(ended.users.find(u=>u.id==='before').finishedAt,deadline);
 assert.equal(ended.users.find(u=>u.id==='before').finishReason,'inactivity');
 assert.equal(ended.users.find(u=>u.id==='after').finishedAt,ended.endedAt);
 assert.equal(ended.users.find(u=>u.id==='after').finishReason,'session-ended');
 assert(Number.isFinite(Date.parse(ended.serverNow)));
 await call('/api/sessions/TEST14/end','POST',{},admin);
-assert.equal((await call('/api/sessions/TEST14')).body.endedAt,ended.endedAt);
+assert.equal((await call('/api/sessions/TEST14','GET',undefined,admin)).body.endedAt,ended.endedAt);
 assert.equal((await call('/health')).body.build,'v1.6.0-presence-location');
 assert((await call('/work-summary.js')).body.includes('trafficWorkSummary'));
 console.log('PASS: embedded interface, D1 SQLite queries, 10/20 minute limits, presence and count reset, repeated inactivity detection, all finish reasons, hourly rate, legacy rows and authorization.');
@@ -82,22 +82,42 @@ assert.equal((await call('/api/sessions/TEST15/records','POST',tram15,token2)).b
 assert.equal((await call('/api/sessions/TEST15/records','POST',tram15,token2)).status,200);
 assert.equal((await call('/api/sessions/TEST15/records/tram','DELETE',undefined,{...token2,'X-User-Id':'tram'})).status,200);
 assert.equal((await call('/api/sessions/TEST15/records','POST',tram15,token2)).status,201);
-let view15=(await call('/api/sessions/TEST15')).body;
+let view15=(await call('/api/sessions/TEST15','GET',undefined,admin15)).body;
 assert.equal(view15.records.length,2);assert.deepEqual(stats.summarize(view15).total.composition.map(c=>c.percent),[50,50]);
 const start15=new Date(Date.now()-15*60000).toISOString();sql.prepare("UPDATE users SET data=json_set(data,'$.joined',?) WHERE code='TEST15'").run(start15);
-view15=(await call('/api/sessions/TEST15')).body;assert(Math.abs(stats.summarize(view15).total.intensity-8)<0.01);
+view15=(await call('/api/sessions/TEST15','GET',undefined,admin15)).body;assert(Math.abs(stats.summarize(view15).total.intensity-8)<0.01);
 await call('/api/sessions/TEST15/users/tram/finish','POST',{},token2);
 // Production accepts queued pre-finish records but refuses post-finish timestamps.
 assert.equal((await call('/api/sessions/TEST15/records','POST',{...tram15,id:'queued',time:start15},token2)).status,201);
 assert.equal((await call('/api/sessions/TEST15/records','POST',{...tram15,id:'late',time:new Date(Date.now()+1000).toISOString()},token2)).status,409);
 await call('/api/sessions/TEST15/end','POST',{},admin15);
-view15=(await call('/api/sessions/TEST15')).body;assert(view15.users.every(u=>workSummary(view15,u).confirmed));assert(view15.users.every(u=>Math.abs(workSummary(view15,u).reward-50)<0.1));
+view15=(await call('/api/sessions/TEST15','GET',undefined,admin15)).body;assert(view15.users.every(u=>workSummary(view15,u).confirmed));assert(view15.users.every(u=>Math.abs(workSummary(view15,u).reward-50)<0.1));
 // Pagination used by both participant sync and the live admin dashboard.
 const insert=sql.prepare('INSERT INTO records(code,id,data,time,user_id) VALUES(?,?,?,?,?)');
 for(let i=0;i<501;i++){const r={...r15,id:'page'+String(i).padStart(4,'0')};insert.run('TEST15',r.id,JSON.stringify(r),r.time,r.userId)}
 assert.equal((await call('/api/sessions/TEST15/manage','GET',undefined,admin15)).body.pagedRecords,true);
-const firstPage=(await call('/api/sessions/TEST15/records')).body;assert.equal(firstPage.records.length,500);assert(firstPage.next);
-assert.equal((await call('/api/sessions/TEST15/records?after='+firstPage.next)).body.records.length,4);
+const firstPage=(await call('/api/sessions/TEST15/records','GET',undefined,admin15)).body;assert.equal(firstPage.records.length,500);assert(firstPage.next);
+assert.equal((await call('/api/sessions/TEST15/records?after='+firstPage.next,'GET',undefined,admin15)).body.records.length,4);
+for(const headers of [{},{'X-Participant-Token':'invalid'},{'X-Admin-Token':'invalid'}]){
+  const view=(await call('/api/sessions/TEST15?summary=1','GET',undefined,headers)).body;
+  assert.equal(view.code,'TEST15');
+  for(const field of ['users','records','stationLatitude','stationLongitude','locationHistory','pagedRecords'])assert.equal(field in view,false);
+  assert.equal((await call('/api/sessions/TEST15/records?after=first','GET',undefined,headers)).status,403);
+}
+for(const [id,auth] of [['road',token],['tram',token2]]){
+  const view=(await call('/api/sessions/TEST15','GET',undefined,auth)).body;
+  assert.deepEqual(view.users.map(u=>u.id),[id]);
+  assert(view.records.length && view.records.every(r=>r.userId===id));
+  const summary=(await call('/api/sessions/TEST15?summary=1','GET',undefined,auth)).body;
+  assert.equal(summary.pagedRecords,true);
+  let cursor='', rows=[];
+  do {
+    const page=(await call('/api/sessions/TEST15/records?after='+cursor,'GET',undefined,auth)).body;
+    rows.push(...page.records);cursor=page.next;
+  } while(cursor);
+  assert.deepEqual(rows,view.records);
+  assert.equal((await call('/api/sessions/TEST15/locations','GET',undefined,auth)).status,403);
+}
 for(const category of ['car','tram']){const result=await call('/api/sessions','POST',{...input,code:category==='car'?'CAR015':'TRM015',categories:[category],directions:[{name:'One',mode:category==='car'?'road':'tram',moves:[]}]});assert.equal(result.status,201)}
 sql.prepare("UPDATE sessions SET data=json_remove(data,'$.categories') WHERE code='TEST14'").run();
 assert.deepEqual(stats.categories((await call('/api/sessions/TEST14')).body).map(c=>c.id),stats.legacy);
@@ -111,6 +131,15 @@ assert.equal((await call('/api/sessions/OWN015/manage','GET',undefined,cookies.a
 assert.equal((await call('/api/dashboard','GET',undefined,cookies.user)).status,403);
 assert.equal((await call('/api/dashboard','GET',undefined,cookies.owner)).body.length,1);
 assert.equal((await call('/api/accounts','GET',undefined,cookies.admin)).body.length,4);
+sql.prepare("UPDATE sessions SET owner_id='owner' WHERE code='TEST15'").run();
+for(const auth of [cookies.owner,cookies.admin]){
+ const view=(await call('/api/sessions/TEST15','GET',undefined,auth)).body;
+ assert.deepEqual(view.users.map(u=>u.id),['road','tram']);assert.equal(view.records.length,504);
+}
+for(const auth of [cookies.other,cookies.user,admin15]){
+ const view=(await call('/api/sessions/TEST15','GET',undefined,auth)).body;
+ assert.equal('users' in view,false);assert.equal('records' in view,false);
+}
 const geo=await call('/api/sessions','POST',{...input,code:'GEO160',presenceVerification:true,stationLatitude:50,stationLongitude:14,stationAccuracy:5},cookies.owner);assert.equal(geo.status,201);
 const geoAdmin={'X-Admin-Token':geo.body.adminToken},geoToken={'X-Participant-Token':'c'.repeat(64)},geoBase='/api/sessions/GEO160';
 assert.equal((await call(geoBase+'/users','POST',{id:'geo',name:'Geo',direction:'Road'},geoToken)).status,401);
